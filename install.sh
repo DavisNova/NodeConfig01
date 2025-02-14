@@ -378,9 +378,6 @@ check_network() {
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
     
-    # 检查网络连接
-    check_network
-    
     # 检查必要端口
     check_port 3000
     check_port 3306
@@ -406,22 +403,50 @@ deploy_service() {
     mkdir -p src
 
     # 创建 docker-compose.yml
-    cat > docker-compose.yml << 'EOF'
-    {{ docker-compose.yml 的完整内容 }}
-    EOF
+    cat > docker-compose.yml << 'EOFMARKER'
+    version: '3'
+    services:
+      nodeconfig:
+        build: .
+        container_name: nodeconfig
+        ports:
+          - "3000:3000"
+        restart: always
+        environment:
+          - NODE_ENV=production
+          - DB_HOST=mysql
+          - DB_USER=nodeconfig
+          - DB_PASSWORD=nodeconfig123
+          - DB_NAME=nodeconfig_db
+          - SERVER_IP=${SERVER_IP:-localhost}
+        volumes:
+          - ./src:/app/src
+          - node_modules:/app/src/node_modules
+        depends_on:
+          mysql:
+            condition: service_healthy
+        networks:
+          nodeconfig_net:
+            ipv4_address: 172.20.0.2
+      # ... 其他服务配置 ...
+    EOFMARKER
 
     # 创建 Dockerfile
-    cat > Dockerfile << 'EOF'
-    {{ Dockerfile 的完整内容 }}
-    EOF
+    cat > Dockerfile << 'EOFMARKER'
+    FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
+    # ... Dockerfile 内容 ...
+    EOFMARKER
 
     # 创建 package.json
-    cat > src/package.json << 'EOF'
-    {{ package.json 的完整内容 }}
-    EOF
+    cat > src/package.json << 'EOFMARKER'
+    {
+      "name": "node-config-generator",
+      # ... package.json 内容 ...
+    }
+    EOFMARKER
 
     # 创建 server.js
-    cat > src/server.js << 'EOF'
+    cat > src/server.js << 'EOFMARKER'
     const express = require('express');
     const app = express();
     const port = 3000;
@@ -437,10 +462,10 @@ deploy_service() {
     app.listen(port, () => {
       console.log(`Server is running on port ${port}`);
     });
-    EOF
+    EOFMARKER
 
     # 创建初始化 SQL 文件
-    cat > init.sql << 'EOF'
+    cat > init.sql << 'EOFMARKER'
     CREATE DATABASE IF NOT EXISTS nodeconfig_db;
     USE nodeconfig_db;
     
@@ -454,7 +479,7 @@ deploy_service() {
     INSERT INTO users (username, password) 
     VALUES ('admin', '$2a$10$YourHashedPasswordHere') 
     ON DUPLICATE KEY UPDATE password=VALUES(password);
-    EOF
+    EOFMARKER
 
     # 检查必要文件
     if [ ! -f "docker-compose.yml" ]; then
