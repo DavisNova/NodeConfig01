@@ -2,7 +2,7 @@
 
 # 版本信息
 VERSION="1.0.0"
-SCRIPT_URL="https://raw.githubusercontent.com/DavisNova/NodeConfig01/refs/heads/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh"
 GITHUB_REPO="DavisNova/NodeConfig01"
 INSTALL_DIR="/opt/nodeconfig"
 BACKUP_DIR="/opt/nodeconfig-backup"
@@ -142,10 +142,10 @@ init_env() {
 # 测试镜像源速度
 test_mirror_speed() {
     local mirror=$1
-    local start_time=$(date +%s.%N)
+    local start_time=$(date +%s)
     if curl -s --connect-timeout 3 "${mirror}/v2/" &>/dev/null; then
-        local end_time=$(date +%s.%N)
-        echo "$(echo "${end_time} - ${start_time}" | bc)"
+        local end_time=$(date +%s)
+        echo "$((end_time - start_time))"
         return 0
     fi
     echo "999999"
@@ -206,7 +206,7 @@ EOF
 
     # 更新系统包并安装依赖
     apt update || handle_error "更新包列表失败"
-    apt install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release || handle_error "安装基础依赖失败"
+    apt install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release bc || handle_error "安装基础依赖失败"
 
     # 配置Docker镜像加速
     mkdir -p /etc/docker

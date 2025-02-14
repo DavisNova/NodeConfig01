@@ -28,7 +28,7 @@ create_command() {
     # 创建命令文件
     cat > /usr/local/bin/node-config << 'CMD' || handle_error "创建命令文件失败"
 #!/bin/bash
-bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/refs/heads/main/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh)
 CMD
 
     # 添加执行权限

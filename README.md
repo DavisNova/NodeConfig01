@@ -13,7 +13,7 @@
 - 完整的管理后台
 
 ## 运行
-bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/refs/heads/main/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh)
 
 ## 技术栈
 
@@ -80,3 +80,7 @@ MIT License
 
 - 作者: DavisNova
 - 项目地址: https://github.com/DavisNova/NodeConfig01
+
+
+bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh)
+
