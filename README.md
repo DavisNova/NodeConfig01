@@ -13,7 +13,7 @@
 - 完整的管理后台
 
 ## 运行
-bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/refs/heads/main/install.sh)
 
 ## 技术栈
 

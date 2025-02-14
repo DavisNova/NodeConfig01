@@ -2,7 +2,7 @@
 
 # 版本信息
 VERSION="1.0.0"
-SCRIPT_URL="https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/DavisNova/NodeConfig01/refs/heads/main/install.sh"
 GITHUB_REPO="DavisNova/NodeConfig01"
 INSTALL_DIR="/opt/nodeconfig"
 BACKUP_DIR="/opt/nodeconfig-backup"
@@ -325,7 +325,9 @@ deploy_service() {
     # 停止并清理现有服务
     if [ -d "$INSTALL_DIR" ]; then
         log "${yellow}停止现有服务...${plain}"
-        cd $INSTALL_DIR && docker-compose down 2>/dev/null || handle_error "停止服务失败"
+        if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
+            cd $INSTALL_DIR && docker-compose down 2>/dev/null
+        fi
         cd /
         log "${yellow}清理旧文件...${plain}"
         rm -rf $INSTALL_DIR
@@ -337,39 +339,53 @@ deploy_service() {
 
     # 克隆项目
     log "${yellow}下载项目文件...${plain}"
-    git clone -b main https://github.com/$GITHUB_REPO.git . || handle_error "下载项目文件失败"
+    if ! git clone -b main https://github.com/$GITHUB_REPO.git .; then
+        log "${red}下载项目文件失败，尝试使用代理下载...${plain}"
+        if ! git clone -b main https://ghproxy.com/https://github.com/$GITHUB_REPO.git .; then
+            handle_error "项目下载失败，请检查网络连接"
+        fi
+    fi
+
+    # 检查必要文件
+    if [ ! -f "docker-compose.yml" ]; then
+        handle_error "docker-compose.yml 文件不存在"
+    fi
+
+    if [ ! -f "Dockerfile" ]; then
+        handle_error "Dockerfile 文件不存在"
+    fi
 
     # 启动服务
     log "${yellow}启动服务...${plain}"
-    docker-compose up -d --build || handle_error "启动服务失败"
+    # 先构建镜像
+    log "${yellow}构建Docker镜像...${plain}"
+    docker-compose build --no-cache || handle_error "构建镜像失败"
+    
+    # 然后启动服务
+    log "${yellow}启动Docker容器...${plain}"
+    docker-compose up -d || handle_error "启动容器失败"
+    
+    # 检查容器状态
+    log "${yellow}检查容器状态...${plain}"
+    if ! docker-compose ps | grep -q "Up"; then
+        log "${red}容器启动失败，查看错误日志：${plain}"
+        docker-compose logs
+        handle_error "服务启动失败"
+    fi
+
     check_service_health
 
-    # 检查服务状态
-    if [ $? -eq 0 ]; then
-        echo -e "${green}服务部署完成！${plain}"
-        echo -e "${yellow}服务状态：${plain}"
-        docker-compose ps
-    else
-        echo -e "${red}服务部署失败！${plain}"
-        echo -e "${yellow}错误日志：${plain}"
-        docker-compose logs
-    fi
-
-    # 等待服务启动
-    echo -e "${yellow}等待服务启动...${plain}"
-    sleep 5
-
-    # 检查服务可用性
-    if curl -s http://localhost:3000 > /dev/null; then
-        echo -e "${green}服务已成功启动！${plain}"
-        echo -e "${green}现在可以通过以下地址访问：${plain}"
-        echo -e "${yellow}http://localhost:3000${plain}"
-        echo -e "${yellow}http://$(curl -s ip.sb):3000${plain}"
-    else
-        echo -e "${red}服务启动可能存在问题，请检查日志${plain}"
-    fi
-
-    sleep 2
+    # 显示服务信息
+    log "${green}服务部署完成！${plain}"
+    log "${yellow}服务状态：${plain}"
+    docker-compose ps
+    
+    # 显示访问信息
+    local ip=$(curl -s ip.sb || wget -qO- ip.sb)
+    log "${green}现在可以通过以下地址访问：${plain}"
+    log "${yellow}http://${ip}:3000${plain}"
+    log "${yellow}管理面板：http://${ip}:3000/admin${plain}"
+    log "${yellow}数据库管理：http://${ip}:8080${plain}"
 }
 
 # 添加更新功能
