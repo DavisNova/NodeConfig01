@@ -398,86 +398,85 @@ deploy_service() {
     mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
-    # 创建配置文件
     log "${yellow}创建配置文件...${plain}"
     
     # 创建 docker-compose.yml
     cat > docker-compose.yml << 'END'
-    version: "3"
-    services:
-      nodeconfig:
-        build: .
-        container_name: nodeconfig
-        ports:
-          - "3000:3000"
-        restart: always
-        environment:
-          - NODE_ENV=production
-          - DB_HOST=mysql
-          - DB_USER=nodeconfig
-          - DB_PASSWORD=nodeconfig123
-          - DB_NAME=nodeconfig_db
-          - SERVER_IP=${SERVER_IP:-localhost}
-        volumes:
-          - ./src:/app/src
-          - node_modules:/app/src/node_modules
-        depends_on:
-          mysql:
-            condition: service_healthy
-        networks:
-          nodeconfig_net:
-            ipv4_address: 172.20.0.2
-    END
-    
+version: "3"
+services:
+  nodeconfig:
+    build: .
+    container_name: nodeconfig
+    ports:
+      - "3000:3000"
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=mysql
+      - DB_USER=nodeconfig
+      - DB_PASSWORD=nodeconfig123
+      - DB_NAME=nodeconfig_db
+      - SERVER_IP=${SERVER_IP:-localhost}
+    volumes:
+      - ./src:/app/src
+      - node_modules:/app/src/node_modules
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.2
+END
+
     # 创建 Dockerfile
     cat > Dockerfile << 'END'
-    FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
-    WORKDIR /app/src
-    RUN sed -i "s/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g" /etc/apk/repositories \
-        && apk update \
-        && apk add --no-cache curl mysql-client tzdata git
-    RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-        && echo "Asia/Shanghai" > /etc/timezone
-    COPY src/package*.json ./
-    RUN npm config set registry https://registry.npmmirror.com \
-        && npm install
-    COPY src/ .
-    EXPOSE 3000
-    CMD ["npm", "start"]
-    END
-    
+FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
+WORKDIR /app/src
+RUN sed -i "s/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g" /etc/apk/repositories \
+    && apk update \
+    && apk add --no-cache curl mysql-client tzdata git
+RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone
+COPY src/package*.json ./
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install
+COPY src/ .
+EXPOSE 3000
+CMD ["npm", "start"]
+END
+
     # 创建 package.json
     cat > src/package.json << 'END'
-    {
-      "name": "nodeconfig",
-      "version": "1.0.0",
-      "scripts": {
-        "start": "node server.js"
-      },
-      "dependencies": {
-        "express": "^4.18.2"
-      }
-    }
-    END
-    
+{
+  "name": "nodeconfig",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
+END
+
     # 创建 server.js
     cat > src/server.js << 'END'
-    const express = require("express");
-    const app = express();
-    const port = 3000;
-    
-    app.get("/", (req, res) => {
-      res.send("NodeConfig is running!");
-    });
-    
-    app.get("/health", (req, res) => {
-      res.send("OK");
-    });
-    
-    app.listen(port, () => {
-      console.log(`Server is running on port ${port}`);
-    });
-    END
+const express = require("express");
+const app = express();
+const port = 3000;
+
+app.get("/", (req, res) => {
+  res.send("NodeConfig is running!");
+});
+
+app.get("/health", (req, res) => {
+  res.send("OK");
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
+END
 
     # 检查必要文件
     if [ ! -f "docker-compose.yml" ]; then
