@@ -401,7 +401,9 @@ deploy_service() {
     # 创建配置文件
     log "${yellow}创建配置文件...${plain}"
     
-    echo 'version: "3"
+    # 创建 docker-compose.yml
+    cat > docker-compose.yml << 'END'
+    version: "3"
     services:
       nodeconfig:
         build: .
@@ -424,9 +426,12 @@ deploy_service() {
             condition: service_healthy
         networks:
           nodeconfig_net:
-            ipv4_address: 172.20.0.2' > docker-compose.yml
+            ipv4_address: 172.20.0.2
+    END
     
-    echo 'FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
+    # 创建 Dockerfile
+    cat > Dockerfile << 'END'
+    FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
     WORKDIR /app/src
     RUN sed -i "s/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g" /etc/apk/repositories \
         && apk update \
@@ -438,9 +443,12 @@ deploy_service() {
         && npm install
     COPY src/ .
     EXPOSE 3000
-    CMD ["npm", "start"]' > Dockerfile
+    CMD ["npm", "start"]
+    END
     
-    echo '{
+    # 创建 package.json
+    cat > src/package.json << 'END'
+    {
       "name": "nodeconfig",
       "version": "1.0.0",
       "scripts": {
@@ -449,24 +457,27 @@ deploy_service() {
       "dependencies": {
         "express": "^4.18.2"
       }
-    }' > src/package.json
+    }
+    END
     
-    echo '
+    # 创建 server.js
+    cat > src/server.js << 'END'
     const express = require("express");
     const app = express();
     const port = 3000;
-
+    
     app.get("/", (req, res) => {
       res.send("NodeConfig is running!");
     });
-
+    
     app.get("/health", (req, res) => {
       res.send("OK");
     });
-
+    
     app.listen(port, () => {
       console.log(`Server is running on port ${port}`);
-    });' > src/server.js
+    });
+    END
 
     # 检查必要文件
     if [ ! -f "docker-compose.yml" ]; then
