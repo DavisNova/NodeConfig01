@@ -727,6 +727,66 @@ function updateProxyGroups(template, proxies) {
     ];
 }
 
+// 处理配置生成的路由
+app.post('/api/generate-config', async (req, res) => {
+    try {
+        const {
+            nodes,
+            nameConfig,
+            subscriptionName
+        } = req.body;
+
+        // 生成配置文件名称
+        const fileName = subscriptionName || `config_${Math.floor(Date.now() / 1000)}.yaml`;
+
+        // 处理节点配置
+        const processedNodes = nodes.map((node, index) => {
+            let nodeName = node.name;
+
+            // 应用命名规则
+            if (nameConfig) {
+                if (nameConfig.customNames && nameConfig.customNames[index]) {
+                    nodeName = nameConfig.customNames[index];
+                } else if (nameConfig.useSequentialNames && nameConfig.baseNodeName) {
+                    nodeName = `${nameConfig.baseNodeName}${String(index + 1).padStart(3, '0')}`;
+                }
+
+                // 添加时间后缀
+                if (nameConfig.addTimeStamp) {
+                    const now = new Date();
+                    const timeStamp = now.getFullYear() +
+                        String(now.getMonth() + 1).padStart(2, '0') +
+                        String(now.getDate()).padStart(2, '0');
+                    nodeName += timeStamp;
+                }
+            }
+
+            return {
+                ...node,
+                name: nodeName
+            };
+        });
+
+        // 生成配置文件
+        const config = generateConfig(processedNodes);
+        
+        // 保存配置文件
+        await saveConfig(fileName, config);
+
+        res.json({
+            success: true,
+            fileName,
+            downloadUrl: `/download/${fileName}`
+        });
+    } catch (error) {
+        console.error('生成配置失败:', error);
+        res.status(500).json({
+            success: false,
+            error: '生成配置失败'
+        });
+    }
+});
+
 // 启动服务器
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
