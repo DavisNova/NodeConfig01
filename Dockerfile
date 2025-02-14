@@ -1,9 +1,13 @@
-FROM node:18-alpine
+FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
+
+# 启用 buildkit 缓存挂载
+# syntax=docker/dockerfile:1.4
 
 WORKDIR /app/src
 
 # 修改 apk 源为国内源并安装依赖
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+RUN --mount=type=cache,target=/var/cache/apk \
+    sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
     && apk update \
     && apk add --no-cache \
     curl \
@@ -20,7 +24,8 @@ RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
 COPY src/package*.json ./
 
 # 使用淘宝镜像源安装依赖
-RUN npm config set registry https://registry.npmmirror.com \
+RUN --mount=type=cache,target=/root/.npm \
+    npm config set registry https://registry.npmmirror.com \
     && npm install \
     && npm cache clean --force
 

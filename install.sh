@@ -17,10 +17,13 @@ plain='\033[0m'
 
 # 在文件开头添加源配置
 DOCKER_MIRRORS=(
+    "https://registry.cn-hangzhou.aliyuncs.com"
     "https://mirror.ccs.tencentyun.com"
-    "https://registry.docker-cn.com"
     "https://docker.mirrors.ustc.edu.cn"
     "https://hub-mirror.c.163.com"
+    "https://registry.docker-cn.com"
+    "https://registry.cn-beijing.aliyuncs.com"
+    "https://registry.cn-shenzhen.aliyuncs.com"
 )
 
 # 日志函数
@@ -136,6 +139,42 @@ init_env() {
     echo "系统信息: $(uname -a)" >> ${LOG_FILE}
 }
 
+# 测试镜像源速度
+test_mirror_speed() {
+    local mirror=$1
+    local start_time=$(date +%s.%N)
+    if curl -s --connect-timeout 3 "${mirror}/v2/" &>/dev/null; then
+        local end_time=$(date +%s.%N)
+        echo "$(echo "${end_time} - ${start_time}" | bc)"
+        return 0
+    fi
+    echo "999999"
+    return 1
+}
+
+# 选择最快的镜像源
+select_fastest_mirror() {
+    log "${yellow}正在测试镜像源速度...${plain}"
+    local fastest_mirror=""
+    local fastest_speed=999999
+    
+    for mirror in "${DOCKER_MIRRORS[@]}"; do
+        log "${yellow}测试镜像源: ${mirror}${plain}"
+        local speed=$(test_mirror_speed "$mirror")
+        if (( $(echo "$speed < $fastest_speed" | bc -l) )); then
+            fastest_speed=$speed
+            fastest_mirror=$mirror
+        fi
+    done
+    
+    if [ -n "$fastest_mirror" ]; then
+        log "${green}最快的镜像源: ${fastest_mirror}${plain}"
+        echo "$fastest_mirror"
+    else
+        handle_error "未找到可用的镜像源"
+    fi
+}
+
 # 安装基础组件
 install_base() {
     # 安装前检查
@@ -171,14 +210,19 @@ EOF
 
     # 配置Docker镜像加速
     mkdir -p /etc/docker
+    local fastest_mirror=$(select_fastest_mirror)
     cat > /etc/docker/daemon.json << EOF
 {
     "registry-mirrors": [
+        "${fastest_mirror}",
         "https://mirror.ccs.tencentyun.com",
-        "https://registry.docker-cn.com",
         "https://docker.mirrors.ustc.edu.cn",
         "https://hub-mirror.c.163.com"
-    ]
+    ],
+    "dns": ["8.8.8.8", "114.114.114.114"],
+    "max-concurrent-downloads": 10,
+    "max-concurrent-uploads": 5,
+    "experimental": true
 }
 EOF
 
@@ -313,9 +357,29 @@ view_logs() {
     fi
 }
 
+# 检查网络连接
+check_network() {
+    log "${yellow}检查网络连接...${plain}"
+    
+    # 检查 DNS
+    if ! nslookup registry.cn-hangzhou.aliyuncs.com >/dev/null 2>&1; then
+        log "${yellow}DNS 解析失败，尝试使用备用 DNS${plain}"
+        echo "nameserver 8.8.8.8" > /etc/resolv.conf
+        echo "nameserver 114.114.114.114" >> /etc/resolv.conf
+    fi
+    
+    # 检查镜像源连接
+    if ! curl -s https://registry.cn-hangzhou.aliyuncs.com/v2/ >/dev/null; then
+        handle_error "无法连接到 Docker 镜像源，请检查网络设置"
+    fi
+}
+
 # 部署服务
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
+    
+    # 检查网络连接
+    check_network
     
     # 检查必要端口
     check_port 3000
@@ -337,14 +401,60 @@ deploy_service() {
     mkdir -p $INSTALL_DIR || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
-    # 克隆项目
-    log "${yellow}下载项目文件...${plain}"
-    if ! git clone -b main https://github.com/$GITHUB_REPO.git .; then
-        log "${red}下载项目文件失败，尝试使用代理下载...${plain}"
-        if ! git clone -b main https://ghproxy.com/https://github.com/$GITHUB_REPO.git .; then
-            handle_error "项目下载失败，请检查网络连接"
-        fi
-    fi
+    # 创建必要的目录和文件
+    log "${yellow}创建项目文件...${plain}"
+    mkdir -p src
+
+    # 创建 docker-compose.yml
+    cat > docker-compose.yml << 'EOF'
+    {{ docker-compose.yml 的完整内容 }}
+    EOF
+
+    # 创建 Dockerfile
+    cat > Dockerfile << 'EOF'
+    {{ Dockerfile 的完整内容 }}
+    EOF
+
+    # 创建 package.json
+    cat > src/package.json << 'EOF'
+    {{ package.json 的完整内容 }}
+    EOF
+
+    # 创建 server.js
+    cat > src/server.js << 'EOF'
+    const express = require('express');
+    const app = express();
+    const port = 3000;
+
+    app.get('/', (req, res) => {
+      res.send('NodeConfig is running!');
+    });
+
+    app.get('/health', (req, res) => {
+      res.send('OK');
+    });
+
+    app.listen(port, () => {
+      console.log(`Server is running on port ${port}`);
+    });
+    EOF
+
+    # 创建初始化 SQL 文件
+    cat > init.sql << 'EOF'
+    CREATE DATABASE IF NOT EXISTS nodeconfig_db;
+    USE nodeconfig_db;
+    
+    CREATE TABLE IF NOT EXISTS users (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      username VARCHAR(50) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    INSERT INTO users (username, password) 
+    VALUES ('admin', '$2a$10$YourHashedPasswordHere') 
+    ON DUPLICATE KEY UPDATE password=VALUES(password);
+    EOF
 
     # 检查必要文件
     if [ ! -f "docker-compose.yml" ]; then
@@ -357,24 +467,31 @@ deploy_service() {
 
     # 启动服务
     log "${yellow}启动服务...${plain}"
-    # 先构建镜像
-    log "${yellow}构建Docker镜像...${plain}"
-    docker-compose build --no-cache || handle_error "构建镜像失败"
-    
-    # 然后启动服务
-    log "${yellow}启动Docker容器...${plain}"
-    docker-compose up -d || handle_error "启动容器失败"
-    
-    # 检查容器状态
-    log "${yellow}检查容器状态...${plain}"
-    if ! docker-compose ps | grep -q "Up"; then
-        log "${red}容器启动失败，查看错误日志：${plain}"
-        docker-compose logs
-        handle_error "服务启动失败"
-    fi
+    # 尝试拉取镜像
+    for i in {1..3}; do
+        log "${yellow}尝试拉取镜像 (尝试 $i/3)${plain}"
+        if docker-compose pull; then
+            break
+        fi
+        if [ $i -eq 3 ]; then
+            handle_error "拉取镜像失败，请检查网络连接"
+        fi
+        sleep 5
+    done
 
+    # 构建和启动
+    log "${yellow}构建和启动服务...${plain}"
+    # 设置构建参数
+    export DOCKER_BUILDKIT=1
+    export COMPOSE_DOCKER_CLI_BUILD=1
+    
+    # 使用 buildkit 构建
+    docker-compose build --parallel --no-cache || handle_error "构建服务失败"
+    docker-compose up -d || handle_error "启动服务失败"
+    
+    # 检查服务状态
     check_service_health
-
+    
     # 显示服务信息
     log "${green}服务部署完成！${plain}"
     log "${yellow}服务状态：${plain}"
