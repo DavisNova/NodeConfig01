@@ -398,53 +398,75 @@ deploy_service() {
     mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
-    # 下载必要的文件
-    log "${yellow}下载项目文件...${plain}"
+    # 创建配置文件
+    log "${yellow}创建配置文件...${plain}"
     
-    # 下载 docker-compose.yml
-    curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/docker-compose.yml -o docker-compose.yml || handle_error "下载 docker-compose.yml 失败"
+    echo 'version: "3"
+    services:
+      nodeconfig:
+        build: .
+        container_name: nodeconfig
+        ports:
+          - "3000:3000"
+        restart: always
+        environment:
+          - NODE_ENV=production
+          - DB_HOST=mysql
+          - DB_USER=nodeconfig
+          - DB_PASSWORD=nodeconfig123
+          - DB_NAME=nodeconfig_db
+          - SERVER_IP=${SERVER_IP:-localhost}
+        volumes:
+          - ./src:/app/src
+          - node_modules:/app/src/node_modules
+        depends_on:
+          mysql:
+            condition: service_healthy
+        networks:
+          nodeconfig_net:
+            ipv4_address: 172.20.0.2' > docker-compose.yml
     
-    # 下载 Dockerfile
-    curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/Dockerfile -o Dockerfile || handle_error "下载 Dockerfile 失败"
+    echo 'FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
+    WORKDIR /app/src
+    RUN sed -i "s/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g" /etc/apk/repositories \
+        && apk update \
+        && apk add --no-cache curl mysql-client tzdata git
+    RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+        && echo "Asia/Shanghai" > /etc/timezone
+    COPY src/package*.json ./
+    RUN npm config set registry https://registry.npmmirror.com \
+        && npm install
+    COPY src/ .
+    EXPOSE 3000
+    CMD ["npm", "start"]' > Dockerfile
     
-    # 下载 package.json
-    curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/src/package.json -o src/package.json || handle_error "下载 package.json 失败"
+    echo '{
+      "name": "nodeconfig",
+      "version": "1.0.0",
+      "scripts": {
+        "start": "node server.js"
+      },
+      "dependencies": {
+        "express": "^4.18.2"
+      }
+    }' > src/package.json
     
-    # 创建 server.js
-    cat > src/server.js << EOF
-    const express = require('express');
+    echo '
+    const express = require("express");
     const app = express();
     const port = 3000;
 
-    app.get('/', (req, res) => {
-      res.send('NodeConfig is running!');
+    app.get("/", (req, res) => {
+      res.send("NodeConfig is running!");
     });
 
-    app.get('/health', (req, res) => {
-      res.send('OK');
+    app.get("/health", (req, res) => {
+      res.send("OK");
     });
 
     app.listen(port, () => {
-      console.log(\`Server is running on port \${port}\`);
-    });
-    EOF
-    
-    # 创建初始化 SQL 文件
-    cat > init.sql << EOF
-    CREATE DATABASE IF NOT EXISTS nodeconfig_db;
-    USE nodeconfig_db;
-    
-    CREATE TABLE IF NOT EXISTS users (
-      id INT PRIMARY KEY AUTO_INCREMENT,
-      username VARCHAR(50) UNIQUE NOT NULL,
-      password VARCHAR(255) NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    
-    INSERT INTO users (username, password) 
-    VALUES ('admin', '\$2a\$10\$YourHashedPasswordHere') 
-    ON DUPLICATE KEY UPDATE password=VALUES(password);
-    EOF
+      console.log(`Server is running on port ${port}`);
+    });' > src/server.js
 
     # 检查必要文件
     if [ ! -f "docker-compose.yml" ]; then
