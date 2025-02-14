@@ -395,58 +395,23 @@ deploy_service() {
     fi
 
     # 创建工作目录
-    mkdir -p $INSTALL_DIR || handle_error "创建工作目录失败"
+    mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
-    # 创建必要的目录和文件
-    log "${yellow}创建项目文件...${plain}"
-    mkdir -p src
-
-    # 创建 docker-compose.yml
-    cat > docker-compose.yml << 'EOFMARKER'
-    version: '3'
-    services:
-      nodeconfig:
-        build: .
-        container_name: nodeconfig
-        ports:
-          - "3000:3000"
-        restart: always
-        environment:
-          - NODE_ENV=production
-          - DB_HOST=mysql
-          - DB_USER=nodeconfig
-          - DB_PASSWORD=nodeconfig123
-          - DB_NAME=nodeconfig_db
-          - SERVER_IP=${SERVER_IP:-localhost}
-        volumes:
-          - ./src:/app/src
-          - node_modules:/app/src/node_modules
-        depends_on:
-          mysql:
-            condition: service_healthy
-        networks:
-          nodeconfig_net:
-            ipv4_address: 172.20.0.2
-      # ... 其他服务配置 ...
-    EOFMARKER
-
-    # 创建 Dockerfile
-    cat > Dockerfile << 'EOFMARKER'
-    FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
-    # ... Dockerfile 内容 ...
-    EOFMARKER
-
-    # 创建 package.json
-    cat > src/package.json << 'EOFMARKER'
-    {
-      "name": "node-config-generator",
-      # ... package.json 内容 ...
-    }
-    EOFMARKER
-
+    # 下载必要的文件
+    log "${yellow}下载项目文件...${plain}"
+    
+    # 下载 docker-compose.yml
+    curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/docker-compose.yml -o docker-compose.yml || handle_error "下载 docker-compose.yml 失败"
+    
+    # 下载 Dockerfile
+    curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/Dockerfile -o Dockerfile || handle_error "下载 Dockerfile 失败"
+    
+    # 下载 package.json
+    curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/src/package.json -o src/package.json || handle_error "下载 package.json 失败"
+    
     # 创建 server.js
-    cat > src/server.js << 'EOFMARKER'
+    cat > src/server.js << EOF
     const express = require('express');
     const app = express();
     const port = 3000;
@@ -460,12 +425,12 @@ deploy_service() {
     });
 
     app.listen(port, () => {
-      console.log(`Server is running on port ${port}`);
+      console.log(\`Server is running on port \${port}\`);
     });
-    EOFMARKER
-
+    EOF
+    
     # 创建初始化 SQL 文件
-    cat > init.sql << 'EOFMARKER'
+    cat > init.sql << EOF
     CREATE DATABASE IF NOT EXISTS nodeconfig_db;
     USE nodeconfig_db;
     
@@ -477,9 +442,9 @@ deploy_service() {
     );
     
     INSERT INTO users (username, password) 
-    VALUES ('admin', '$2a$10$YourHashedPasswordHere') 
+    VALUES ('admin', '\$2a\$10\$YourHashedPasswordHere') 
     ON DUPLICATE KEY UPDATE password=VALUES(password);
-    EOFMARKER
+    EOF
 
     # 检查必要文件
     if [ ! -f "docker-compose.yml" ]; then
@@ -492,26 +457,6 @@ deploy_service() {
 
     # 启动服务
     log "${yellow}启动服务...${plain}"
-    # 尝试拉取镜像
-    for i in {1..3}; do
-        log "${yellow}尝试拉取镜像 (尝试 $i/3)${plain}"
-        if docker-compose pull; then
-            break
-        fi
-        if [ $i -eq 3 ]; then
-            handle_error "拉取镜像失败，请检查网络连接"
-        fi
-        sleep 5
-    done
-
-    # 构建和启动
-    log "${yellow}构建和启动服务...${plain}"
-    # 设置构建参数
-    export DOCKER_BUILDKIT=1
-    export COMPOSE_DOCKER_CLI_BUILD=1
-    
-    # 使用 buildkit 构建
-    docker-compose build --parallel --no-cache || handle_error "构建服务失败"
     docker-compose up -d || handle_error "启动服务失败"
     
     # 检查服务状态
@@ -521,13 +466,6 @@ deploy_service() {
     log "${green}服务部署完成！${plain}"
     log "${yellow}服务状态：${plain}"
     docker-compose ps
-    
-    # 显示访问信息
-    local ip=$(curl -s ip.sb || wget -qO- ip.sb)
-    log "${green}现在可以通过以下地址访问：${plain}"
-    log "${yellow}http://${ip}:3000${plain}"
-    log "${yellow}管理面板：http://${ip}:3000/admin${plain}"
-    log "${yellow}数据库管理：http://${ip}:8080${plain}"
 }
 
 # 添加更新功能
