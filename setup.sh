@@ -21,15 +21,15 @@ handle_error() {
 # 检查root权限
 [[ $EUID -ne 0 ]] && handle_error "必须使用root用户运行此脚本！"
 
-# 下载安装脚本
-install_script() {
+# 创建命令链接
+create_command() {
     log "${yellow}开始安装命令...${plain}"
     
-    # 下载安装脚本
-    curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh -o /usr/local/bin/node-config || {
-        log "${red}下载失败，尝试使用备用链接${plain}"
-        curl -sL https://ghproxy.com/https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh -o /usr/local/bin/node-config || handle_error "下载安装脚本失败"
-    }
+    # 创建命令文件
+    cat > /usr/local/bin/node-config << 'CMD' || handle_error "创建命令文件失败"
+#!/bin/bash
+bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/refs/heads/main/install.sh)
+CMD
 
     # 添加执行权限
     chmod +x /usr/local/bin/node-config || handle_error "添加执行权限失败"
@@ -54,7 +54,4 @@ check_installed() {
 
 # 主流程
 check_installed
-install_script
-
-# 运行安装脚本
-/usr/local/bin/node-config
+create_command

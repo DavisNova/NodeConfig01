@@ -29,21 +29,13 @@ DOCKER_MIRRORS=(
 # 日志函数
 log() {
     echo -e "${1}"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${1}" >> ${LOG_FILE}
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${1}" >> $LOG_FILE
 }
 
 # 错误处理
 handle_error() {
     log "${red}错误: $1${plain}"
     exit 1
-}
-
-# 检查是否已安装
-check_installed() {
-    if [ -d "${INSTALL_DIR}" ]; then
-        return 0
-    fi
-    return 1
 }
 
 # 清屏函数
@@ -655,39 +647,109 @@ auto_cleanup() {
 
 # 显示菜单
 show_menu() {
-    echo -e "
-    ${green}NodeConfig 管理脚本${plain}
-    
-    ${green}1.${plain} 安装依赖
-    ${green}2.${plain} 部署服务
-    ${green}3.${plain} 启动服务
-    ${green}4.${plain} 停止服务
-    ${green}5.${plain} 重启服务
-    ${green}6.${plain} 查看状态
-    ${green}7.${plain} 查看日志
-    ${green}8.${plain} 卸载服务
-    ${green}9.${plain} 更新服务
-    ${green}10.${plain} 备份数据
-    ${green}11.${plain} 恢复数据
-    ${green}0.${plain} 退出脚本
-    "
-    echo && read -p "请输入选择 [0-11]: " num
-    
-    case "${num}" in
-        0) exit 0 ;;
-        1) install_base ;;
-        2) deploy_service ;;
-        3) docker-compose up -d ;;
-        4) docker-compose down ;;
-        5) docker-compose restart ;;
-        6) docker-compose ps ;;
-        7) view_logs ;;
-        8) uninstall_all ;;
-        9) update_service ;;
-        10) backup_data ;;
-        11) restore_data ;;
-        *) echo -e "${red}请输入正确的数字 [0-11]${plain}" ;;
-    esac
+    while true; do
+        clear_screen
+        echo -e "
+  ${green}节点配置生成工具箱${plain}
+  
+  ${green}1.${plain}  安装依赖
+  ${green}2.${plain}  部署服务
+  ${green}3.${plain}  启动服务
+  ${green}4.${plain}  停止服务
+  ${green}5.${plain}  重启服务
+  ${green}6.${plain}  查看状态
+  ${green}7.${plain}  查看日志
+  ${green}8.${plain}  卸载服务
+  ${green}9.${plain}  更新服务
+  ${green}10.${plain} 备份数据
+  ${green}11.${plain} 恢复数据
+  ${green}12.${plain} 检查更新
+  ${green}13.${plain} 完全卸载
+  ${green}14.${plain} 系统优化
+  ${green}15.${plain} 自动清理
+  ${green}0.${plain}  退出脚本
+  "
+        echo && read -p "请输入选择 [0-15]: " num
+
+        case "${num}" in
+            1)
+                install_base
+                continue
+                ;;
+            2)
+                deploy_service
+                continue
+                ;;
+            3)
+                cd $INSTALL_DIR && docker-compose up -d
+                echo -e "${green}服务已启动！${plain}"
+                sleep 2
+                continue
+                ;;
+            4)
+                cd $INSTALL_DIR && docker-compose down
+                echo -e "${green}服务已停止！${plain}"
+                sleep 2
+                continue
+                ;;
+            5)
+                cd $INSTALL_DIR && docker-compose restart
+                echo -e "${green}服务已重启！${plain}"
+                sleep 2
+                continue
+                ;;
+            6)
+                check_service_status
+                echo && read -p "按回车继续..." 
+                ;;
+            7)
+                view_logs
+                echo && read -p "按回车继续..." 
+                ;;
+            8)
+                cd $INSTALL_DIR && docker-compose down
+                rm -rf $INSTALL_DIR
+                echo -e "${green}服务已卸载！${plain}"
+                sleep 2
+                continue
+                ;;
+            9)
+                update_service
+                continue
+                ;;
+            10)
+                backup_data
+                continue
+                ;;
+            11)
+                restore_data
+                continue
+                ;;
+            12)
+                check_script_update
+                continue
+                ;;
+            13)
+                uninstall_all
+                exit 0
+                ;;
+            14)
+                optimize_system
+                continue
+                ;;
+            15)
+                auto_cleanup
+                continue
+                ;;
+            0)
+                exit 0
+                ;;
+            *)
+                echo -e "${red}请输入正确的数字 [0-15]${plain}"
+                sleep 2
+                ;;
+        esac
+    done
 }
 
 # 检查脚本更新
@@ -731,20 +793,5 @@ check_resources
 # 检查脚本更新
 check_script_update
 
-# 主函数
-main() {
-    check_root
-    check_sys
-    
-    if ! check_installed; then
-        log "${yellow}首次运行，请先安装依赖（选项1）再部署服务（选项2）${plain}"
-    fi
-    
-    while true; do
-        show_menu
-        echo && read -p "按回车继续..." && echo
-    done
-}
-
-# 执行主函数
-main
+# 显示主菜单
+show_menu
