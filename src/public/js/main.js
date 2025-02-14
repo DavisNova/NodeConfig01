@@ -1,21 +1,71 @@
 // 节点名称配置相关功能
 document.addEventListener('DOMContentLoaded', function() {
+    // 缓存DOM元素
+    const elements = {
+        useSequentialNames: document.getElementById('useSequentialNames'),
+        sequentialNameInput: document.getElementById('sequentialNameInput'),
+        customNameBtn: document.getElementById('customNameBtn'),
+        customNameInputs: document.getElementById('customNameInputs'),
+        addTimeStamp: document.getElementById('addTimeStamp'),
+        subscriptionName: document.getElementById('subscriptionName'),
+        baseNodeName: document.getElementById('baseNodeName')
+    };
+
+    // 从localStorage恢复上次的设置
+    const savedConfig = JSON.parse(localStorage.getItem('nodeConfigSettings') || '{}');
+    if (savedConfig) {
+        elements.addTimeStamp.checked = savedConfig.addTimeStamp || false;
+        elements.useSequentialNames.checked = savedConfig.useSequentialNames || false;
+        elements.baseNodeName.value = savedConfig.baseNodeName || '';
+        elements.subscriptionName.value = savedConfig.subscriptionName || '';
+    }
+
     // 序号命名输入框控制
-    const useSequentialNames = document.getElementById('useSequentialNames');
-    const sequentialNameInput = document.getElementById('sequentialNameInput');
-    
-    useSequentialNames.addEventListener('change', function() {
+    elements.useSequentialNames.addEventListener('change', function() {
         if (this.checked) {
-            sequentialNameInput.classList.add('show');
+            elements.sequentialNameInput.classList.add('show');
+            elements.baseNodeName.focus();
         } else {
-            sequentialNameInput.classList.remove('show');
+            elements.sequentialNameInput.classList.remove('show');
         }
+        saveSettings();
+    });
+
+    // 保存设置到localStorage
+    function saveSettings() {
+        const settings = {
+            addTimeStamp: elements.addTimeStamp.checked,
+            useSequentialNames: elements.useSequentialNames.checked,
+            baseNodeName: elements.baseNodeName.value,
+            subscriptionName: elements.subscriptionName.value
+        };
+        localStorage.setItem('nodeConfigSettings', JSON.stringify(settings));
+    }
+
+    // 添加实时预览功能
+    function updateNamePreview() {
+        const previewContainer = document.getElementById('namePreview');
+        if (!previewContainer) return;
+
+        const config = {
+            addTimeStamp: elements.addTimeStamp.checked,
+            useSequentialNames: elements.useSequentialNames.checked,
+            baseNodeName: elements.baseNodeName.value
+        };
+
+        const previewName = generateNodeName(0, config);
+        previewContainer.textContent = `预览: ${previewName}`;
+    }
+
+    // 为所有输入元素添加变更监听
+    ['addTimeStamp', 'useSequentialNames', 'baseNodeName'].forEach(id => {
+        elements[id].addEventListener('change', () => {
+            updateNamePreview();
+            saveSettings();
+        });
     });
 
     // 自定义名称按钮控制
-    const customNameBtn = document.getElementById('customNameBtn');
-    const customNameInputs = document.getElementById('customNameInputs');
-    
     customNameBtn.addEventListener('click', function() {
         const nodeCount = getNodeCount(); // 获取当前配置的节点数量
         customNameInputs.innerHTML = ''; // 清空现有输入框
@@ -72,21 +122,4 @@ function generateSubscriptionName() {
     
     const timestamp = Math.floor(Date.now() / 1000);
     return `config_${timestamp}`;
-}
-
-// 添加错误处理和加载状态
-async function generateAndDownload() {
-    try {
-        const button = document.querySelector('#generateBtn');
-        button.disabled = true;
-        button.innerHTML = '<i class="bi bi-hourglass"></i> 生成中...';
-
-        // ... 生成逻辑 ...
-
-    } catch (error) {
-        showError('生成配置失败: ' + error.message);
-    } finally {
-        button.disabled = false;
-        button.innerHTML = '<i class="bi bi-download"></i> 下载配置';
-    }
 } 

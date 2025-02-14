@@ -98,15 +98,3 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话表';
-
--- 添加索引优化
-ALTER TABLE subscriptions ADD INDEX idx_username (username);
-ALTER TABLE subscriptions ADD INDEX idx_status (status);
-ALTER TABLE access_stats ADD INDEX idx_access_time (access_time);
-
--- 添加外键约束
-ALTER TABLE nodes 
-ADD CONSTRAINT fk_subscription_id 
-FOREIGN KEY (subscription_id) 
-REFERENCES subscriptions(id) 
-ON DELETE CASCADE;

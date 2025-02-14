@@ -33,11 +33,7 @@ app.use(session({
     secret: 'nodeconfig-secret',
     resave: false,
     saveUninitialized: false,
-    cookie: { 
-        maxAge: 24 * 60 * 60 * 1000,
-        secure: process.env.NODE_ENV === 'production',
-        httpOnly: true
-    }
+    cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24小时
 }));
 
 // 中间件配置
@@ -56,8 +52,7 @@ app.get('/admin', (req, res) => {
 });
 
 // 静态文件服务
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/views', express.static(path.join(__dirname, 'views')));
+app.use(express.static(path.join(__dirname)));
 
 // 管理后台 API
 
@@ -641,13 +636,12 @@ app.get('/subscribe/:id', async (req, res) => {
     }
 });
 
-// 添加全局错误处理中间件
+// 错误处理中间件
 app.use((err, req, res, next) => {
-    console.error('错误:', err);
+    console.error('Error:', err);
     res.status(500).json({
-        success: false,
-        error: process.env.NODE_ENV === 'production' ? 
-            '服务器内部错误' : err.message
+        error: true,
+        message: '服务器内部错误'
     });
 });
 
@@ -742,30 +736,56 @@ app.post('/api/generate-config', async (req, res) => {
             subscriptionName
         } = req.body;
 
+        // 验证输入
+        if (!nodes || !Array.isArray(nodes) || nodes.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: '节点配置不能为空'
+            });
+        }
+
         // 生成配置文件名称
-        const fileName = subscriptionName || `config_${Math.floor(Date.now() / 1000)}.yaml`;
+        let fileName = subscriptionName;
+        if (!fileName) {
+            const timestamp = new Date().toISOString()
+                .replace(/[^0-9]/g, '')
+                .slice(0, 14);
+            fileName = `config_${timestamp}.yaml`;
+        }
+        // 确保文件名以 .yaml 结尾
+        if (!fileName.toLowerCase().endsWith('.yaml')) {
+            fileName += '.yaml';
+        }
 
         // 处理节点配置
         const processedNodes = nodes.map((node, index) => {
-            let nodeName = node.name;
+            let nodeName = node.name || `Node${String(index + 1).padStart(3, '0')}`;
 
             // 应用命名规则
             if (nameConfig) {
+                // 自定义名称优先级最高
                 if (nameConfig.customNames && nameConfig.customNames[index]) {
                     nodeName = nameConfig.customNames[index];
-                } else if (nameConfig.useSequentialNames && nameConfig.baseNodeName) {
+                } 
+                // 序号命名其次
+                else if (nameConfig.useSequentialNames && nameConfig.baseNodeName) {
                     nodeName = `${nameConfig.baseNodeName}${String(index + 1).padStart(3, '0')}`;
+                    // 添加节点类型标识
+                    if (node.type) {
+                        nodeName = `${nodeName}_${node.type.toUpperCase()}`;
+                    }
                 }
 
                 // 添加时间后缀
                 if (nameConfig.addTimeStamp) {
                     const now = new Date();
-                    const timeStamp = now.getFullYear() +
-                        String(now.getMonth() + 1).padStart(2, '0') +
-                        String(now.getDate()).padStart(2, '0');
-                    nodeName += timeStamp;
+                    const timeStamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+                    nodeName += `_${timeStamp}`;
                 }
             }
+
+            // 清理节点名称中的特殊字符
+            nodeName = nodeName.replace(/[^\w\-\u4e00-\u9fa5]/g, '_');
 
             return {
                 ...node,
@@ -776,19 +796,37 @@ app.post('/api/generate-config', async (req, res) => {
         // 生成配置文件
         const config = generateConfig(processedNodes);
         
+        // 添加配置文件元数据
+        config.metadata = {
+            created_at: new Date().toISOString(),
+            node_count: processedNodes.length,
+            name_config: nameConfig
+        };
+        
         // 保存配置文件
         await saveConfig(fileName, config);
+
+        // 记录生成历史
+        await saveConfigHistory({
+            fileName,
+            nodeCount: processedNodes.length,
+            nameConfig,
+            timestamp: new Date()
+        });
 
         res.json({
             success: true,
             fileName,
-            downloadUrl: `/download/${fileName}`
+            downloadUrl: `/download/${fileName}`,
+            nodeCount: processedNodes.length,
+            preview: processedNodes.map(node => node.name)
         });
     } catch (error) {
         console.error('生成配置失败:', error);
         res.status(500).json({
             success: false,
-            error: '生成配置失败'
+            error: '生成配置失败',
+            details: error.message
         });
     }
 });

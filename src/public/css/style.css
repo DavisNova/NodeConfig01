@@ -1,80 +1,44 @@
 /* 节点配置模块样式 */
-body {
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-}
-
-.navbar {
-    box-shadow: 0 2px 4px rgba(0,0,0,.1);
-}
-
-.card {
-    border: none;
-    border-radius: 10px;
-    transition: all 0.3s ease;
-}
-
-.card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,.1) !important;
-}
-
-.card-header {
-    border-bottom: 1px solid rgba(0,0,0,.1);
-    background-color: #fff !important;
-    border-radius: 10px 10px 0 0 !important;
-}
-
 .custom-node-name {
     margin-bottom: 0.5rem;
-    border-radius: 6px;
 }
 
 .collapse {
     transition: all 0.3s ease-in-out;
 }
 
+.card-header {
+    background-color: #f8f9fa;
+}
+
 .form-check {
     margin-bottom: 1rem;
-    padding-left: 2rem;
 }
 
 .input-group-text {
     min-width: 80px;
+}
+
+/* 预览区域样式 */
+.preview-container {
     background-color: #f8f9fa;
-    border-right: none;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    margin-top: 0.5rem;
+    font-family: monospace;
 }
 
-.input-group .form-control {
-    border-left: none;
+/* 输入验证样式 */
+.is-invalid {
+    border-color: #dc3545;
 }
 
-.input-group .form-control:focus {
-    border-color: #dee2e6;
-    box-shadow: none;
+.invalid-feedback {
+    display: none;
+    color: #dc3545;
+    font-size: 0.875em;
 }
 
-.btn-outline-primary {
-    border-radius: 6px;
-    padding: 8px 16px;
-}
-
-.custom-names-container {
-    max-height: 300px;
-    overflow-y: auto;
-    padding-right: 5px;
-}
-
-.custom-names-container::-webkit-scrollbar {
-    width: 4px;
-}
-
-.custom-names-container::-webkit-scrollbar-thumb {
-    background-color: rgba(0,0,0,.2);
-    border-radius: 2px;
-}
-
-.footer {
-    margin-top: auto;
+.was-validated .form-control:invalid ~ .invalid-feedback {
+    display: block;
 } 

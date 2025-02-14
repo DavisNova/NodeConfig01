@@ -27,19 +27,6 @@ services:
     networks:
       nodeconfig_net:
         ipv4_address: 172.20.0.2
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   mysql:
     image: mysql:8.0
