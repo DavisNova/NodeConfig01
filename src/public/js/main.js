@@ -72,4 +72,21 @@ function generateSubscriptionName() {
     
     const timestamp = Math.floor(Date.now() / 1000);
     return `config_${timestamp}`;
+}
+
+// 添加错误处理和加载状态
+async function generateAndDownload() {
+    try {
+        const button = document.querySelector('#generateBtn');
+        button.disabled = true;
+        button.innerHTML = '<i class="bi bi-hourglass"></i> 生成中...';
+
+        // ... 生成逻辑 ...
+
+    } catch (error) {
+        showError('生成配置失败: ' + error.message);
+    } finally {
+        button.disabled = false;
+        button.innerHTML = '<i class="bi bi-download"></i> 下载配置';
+    }
 } 

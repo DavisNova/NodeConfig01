@@ -407,8 +407,90 @@ deploy_service() {
 
     # 创建 docker-compose.yml
     cat > docker-compose.yml << 'EOF'
-    {{ docker-compose.yml 的完整内容 }}
-    EOF
+version: '3'
+services:
+  nodeconfig:
+    build: .
+    container_name: nodeconfig
+    ports:
+      - "3000:3000"
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=mysql
+      - DB_USER=nodeconfig
+      - DB_PASSWORD=nodeconfig123
+      - DB_NAME=nodeconfig_db
+      - SERVER_IP=${SERVER_IP:-localhost}
+    volumes:
+      - ./src:/app/src
+      - node_modules:/app/src/node_modules
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.2
+
+  mysql:
+    image: mysql:8.0
+    container_name: nodeconfig-mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=nodeconfig_db
+      - MYSQL_USER=nodeconfig
+      - MYSQL_PASSWORD=nodeconfig123
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "nodeconfig", "-pnodeconfig123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.3
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: nodeconfig-phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=mysql
+      - MYSQL_ROOT_PASSWORD=root123
+      - PMA_USER=nodeconfig
+      - PMA_PASSWORD=nodeconfig123
+      - UPLOAD_LIMIT=300M
+      - PMA_ABSOLUTE_URI=http://${SERVER_IP:-localhost}:8080/
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.4
+
+volumes:
+  mysql_data:
+  node_modules:
+
+networks:
+  nodeconfig_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+EOF
 
     # 创建 Dockerfile
     cat > Dockerfile << 'EOF'
@@ -548,19 +630,23 @@ update_service() {
     cd $INSTALL_DIR && git log --oneline $current_version..$remote_version
 }
 
-# 备份数据
+# 添加系统依赖检查
+check_dependencies() {
+    local deps=(curl wget git docker docker-compose)
+    for dep in "${deps[@]}"; do
+        if ! command -v $dep >/dev/null 2>&1; then
+            log "${red}缺少依赖: ${dep}${plain}"
+            return 1
+        fi
+    done
+}
+
+# 添加数据备份功能
 backup_data() {
-    log "${yellow}开始备份数据...${plain}"
-    local backup_file="${BACKUP_DIR}/nodeconfig-$(date +%Y%m%d%H%M%S).tar.gz"
-    
-    mkdir -p $BACKUP_DIR
-    
     if [ -d "$INSTALL_DIR" ]; then
-        cd $INSTALL_DIR
-        tar czf $backup_file data/ docker-compose.yml || handle_error "备份失败"
-        log "${green}备份完成: ${backup_file}${plain}"
-    else
-        handle_error "未找到需要备份的数据"
+        local backup_name="nodeconfig_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+        tar czf "${BACKUP_DIR}/${backup_name}" -C "$INSTALL_DIR" .
+        log "${green}数据已备份到: ${BACKUP_DIR}/${backup_name}${plain}"
     fi
 }
 

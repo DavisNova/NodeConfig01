@@ -33,7 +33,11 @@ app.use(session({
     secret: 'nodeconfig-secret',
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24小时
+    cookie: { 
+        maxAge: 24 * 60 * 60 * 1000,
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true
+    }
 }));
 
 // 中间件配置
@@ -52,7 +56,8 @@ app.get('/admin', (req, res) => {
 });
 
 // 静态文件服务
-app.use(express.static(path.join(__dirname)));
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/views', express.static(path.join(__dirname, 'views')));
 
 // 管理后台 API
 
@@ -636,12 +641,13 @@ app.get('/subscribe/:id', async (req, res) => {
     }
 });
 
-// 错误处理中间件
+// 添加全局错误处理中间件
 app.use((err, req, res, next) => {
-    console.error('Error:', err);
+    console.error('错误:', err);
     res.status(500).json({
-        error: true,
-        message: '服务器内部错误'
+        success: false,
+        error: process.env.NODE_ENV === 'production' ? 
+            '服务器内部错误' : err.message
     });
 });
 
