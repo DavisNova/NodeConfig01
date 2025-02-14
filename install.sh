@@ -187,78 +187,51 @@ install_base() {
         esac
     fi
     
-    # 检查是否已安装
-    if command -v docker >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1; then
-        log "${green}Docker 和 Docker Compose 已安装${plain}"
-        return 0
-    fi
-    
+    # 检查并安装必要组件
     log "${yellow}开始安装依赖...${plain}"
     
-    # 配置apt国内源
-    cp /etc/apt/sources.list /etc/apt/sources.list.bak
-    cat > /etc/apt/sources.list << EOF
-    deb https://mirrors.aliyun.com/debian/ bullseye main contrib non-free
-    deb https://mirrors.aliyun.com/debian/ bullseye-updates main contrib non-free
-    deb https://mirrors.aliyun.com/debian/ bullseye-backports main contrib non-free
-    deb https://mirrors.aliyun.com/debian-security bullseye-security main contrib non-free
-EOF
-
     # 更新系统包并安装依赖
     apt update || handle_error "更新包列表失败"
     apt install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release bc || handle_error "安装基础依赖失败"
-
+    
+    # 检查 Docker 安装
+    if ! command -v docker >/dev/null 2>&1; then
+        log "${yellow}安装 Docker...${plain}"
+        curl -fsSL https://get.docker.com | bash -s docker || handle_error "Docker 安装失败"
+    else
+        log "${green}Docker 已安装${plain}"
+    fi
+    
+    # 检查 Docker Compose 安装
+    if ! command -v docker-compose >/dev/null 2>&1; then
+        log "${yellow}安装 Docker Compose...${plain}"
+        curl -L "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        chmod +x /usr/local/bin/docker-compose || handle_error "Docker Compose 安装失败"
+    else
+        log "${green}Docker Compose 已安装${plain}"
+    fi
+    
+    # 启动 Docker 服务
+    systemctl start docker
+    systemctl enable docker
+    
     # 配置Docker镜像加速
     mkdir -p /etc/docker
-    local fastest_mirror=$(select_fastest_mirror)
     cat > /etc/docker/daemon.json << EOF
-{
-    "registry-mirrors": [
-        "${fastest_mirror}",
-        "https://mirror.ccs.tencentyun.com",
-        "https://docker.mirrors.ustc.edu.cn",
-        "https://hub-mirror.c.163.com"
-    ],
-    "dns": ["8.8.8.8", "114.114.114.114"],
-    "max-concurrent-downloads": 10,
-    "max-concurrent-uploads": 5,
-    "experimental": true
-}
-EOF
-
-    # 安装Docker
-    log "${yellow}安装Docker...${plain}"
-    if ! curl -fsSL https://get.docker.com | sh; then
-        handle_error "Docker安装失败"
-    fi
-
-    # 启动Docker服务
+    {
+        "registry-mirrors": [
+            "https://mirror.ccs.tencentyun.com",
+            "https://docker.mirrors.ustc.edu.cn",
+            "https://hub-mirror.c.163.com"
+        ]
+    }
+    EOF
+    
+    # 重启Docker服务
     systemctl daemon-reload
-    systemctl restart docker || handle_error "启动Docker服务失败"
-    systemctl enable docker || handle_error "设置Docker开机启动失败"
-
-    # 安装 Docker Compose
-    echo -e "${yellow}安装 Docker Compose...${plain}"
-    curl -L "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
-    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
-
-    # 验证安装
-    echo -e "${yellow}验证安装...${plain}"
-    if ! command -v docker &> /dev/null; then
-        echo -e "${red}Docker 安装失败${plain}"
-        exit 1
-    fi
-    if ! command -v docker-compose &> /dev/null; then
-        echo -e "${red}Docker Compose 安装失败${plain}"
-        exit 1
-    fi
-
-    docker --version
-    docker-compose --version
-
-    echo -e "${green}依赖安装完成！${plain}"
-    sleep 2
+    systemctl restart docker
+    
+    log "${green}基础组件安装完成${plain}"
 }
 
 # 添加健康检查函数
@@ -426,6 +399,60 @@ services:
     networks:
       nodeconfig_net:
         ipv4_address: 172.20.0.2
+
+  mysql:
+    image: mysql:8.0
+    container_name: nodeconfig-mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=nodeconfig_db
+      - MYSQL_USER=nodeconfig
+      - MYSQL_PASSWORD=nodeconfig123
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "nodeconfig", "-pnodeconfig123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.3
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: nodeconfig-phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=mysql
+      - MYSQL_ROOT_PASSWORD=root123
+      - PMA_USER=nodeconfig
+      - PMA_PASSWORD=nodeconfig123
+      - UPLOAD_LIMIT=300M
+      - PMA_ABSOLUTE_URI=http://${SERVER_IP:-localhost}:8080/
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.4
+
+volumes:
+  mysql_data:
+  node_modules:
+
+networks:
+  nodeconfig_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 END
 
     # 创建 Dockerfile
