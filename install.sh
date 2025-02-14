@@ -493,9 +493,21 @@ networks:
 EOF
 
     # 创建 Dockerfile
-    cat > Dockerfile << 'EOF'
-    {{ Dockerfile 的完整内容 }}
-    EOF
+    cat > Dockerfile << 'EOFMARKER'
+FROM node:18-alpine
+
+WORKDIR /app/src
+
+COPY src/package*.json ./
+
+RUN npm install
+
+COPY src .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
+EOFMARKER
 
     # 创建 package.json
     cat > src/package.json << 'EOF'

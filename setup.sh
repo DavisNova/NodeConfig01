@@ -25,12 +25,20 @@ handle_error() {
 create_command() {
     log "${yellow}开始安装命令...${plain}"
     
+    # 创建工作目录
+    mkdir -p /opt/nodeconfig
+    cd /opt/nodeconfig
+    
+    # 下载安装脚本
+    curl -fsSL https://ghproxy.com/https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh -o install.sh || handle_error "下载安装脚本失败"
+    chmod +x install.sh
+    
     # 创建命令文件
-    cat > /usr/local/bin/node-config << 'CMD' || handle_error "创建命令文件失败"
+    cat > /usr/local/bin/node-config << 'EOF'
 #!/bin/bash
-bash <(curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/refs/heads/main/install.sh)
-CMD
-
+cd /opt/nodeconfig && bash install.sh
+EOF
+    
     # 添加执行权限
     chmod +x /usr/local/bin/node-config || handle_error "添加执行权限失败"
     
@@ -53,5 +61,15 @@ check_installed() {
 }
 
 # 主流程
-check_installed
-create_command
+main() {
+    # 清理旧文件
+    rm -rf /opt/nodeconfig
+    rm -rf /opt/nodeconfig-backup
+    
+    # 检查并安装
+    check_installed
+    create_command
+}
+
+# 运行主流程
+main
