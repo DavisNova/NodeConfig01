@@ -190,3 +190,42 @@ MIT License
 
 - 作者: DavisNova
 - 项目地址: https://github.com/DavisNova/NodeConfig01
+
+# 创建 setup.sh
+cat > setup.sh << 'EOF'
+#!/bin/bash
+
+# 定义颜色
+red='\033[0;31m'
+green='\033[0;32m'
+yellow='\033[0;33m'
+plain='\033[0m'
+
+# 检查root权限
+[[ $EUID -ne 0 ]] && echo -e "${red}错误：必须使用root用户运行此脚本！${plain}" && exit 1
+
+# 下载安装脚本
+echo -e "${yellow}下载安装脚本...${plain}"
+curl -sL https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh -o /usr/local/bin/node-config
+
+if [ $? -ne 0 ]; then
+    echo -e "${red}下载失败，尝试使用备用链接${plain}"
+    curl -sL https://ghproxy.com/https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh -o /usr/local/bin/node-config
+fi
+
+# 添加执行权限
+chmod +x /usr/local/bin/node-config
+
+# 创建软链接
+ln -sf /usr/local/bin/node-config /usr/local/bin/node
+
+echo -e "${green}安装完成！${plain}"
+echo -e "使用以下命令运行管理脚本："
+echo -e "  1. ${yellow}node${plain}"
+echo -e "  2. ${yellow}node-config${plain}"
+
+# 运行管理脚本
+/usr/local/bin/node-config
+EOF
+
+chmod +x setup.sh
