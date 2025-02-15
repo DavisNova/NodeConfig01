@@ -381,25 +381,10 @@ deploy_service() {
     mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
-    # 配置 Docker 镜像源
-    mkdir -p /etc/docker
-    cat > /etc/docker/daemon.json << 'EOFDOCKER'
-{
-    "registry-mirrors": [
-        "https://mirror.ccs.tencentyun.com",
-        "https://registry.docker-cn.com",
-        "https://docker.mirrors.ustc.edu.cn",
-        "https://hub-mirror.c.163.com"
-    ],
-    "experimental": true,
-    "max-concurrent-downloads": 10
-}
-EOFDOCKER
-
-    # 重启 Docker 服务
-    systemctl daemon-reload
-    systemctl restart docker
-    sleep 5
+    # 创建完整的目录结构
+    mkdir -p src/logs
+    mkdir -p src/data
+    mkdir -p src/config
 
     # 创建 docker-compose.yml
     cat > docker-compose.yml << 'EOFDC'
@@ -424,60 +409,64 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.2
+
+  mysql:
+    image: mysql:8.0
+    container_name: nodeconfig-mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=nodeconfig_db
+      - MYSQL_USER=nodeconfig
+      - MYSQL_PASSWORD=nodeconfig123
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.3
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: nodeconfig-phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=mysql
+      - MYSQL_ROOT_PASSWORD=root123
+      - PMA_USER=nodeconfig
+      - PMA_PASSWORD=nodeconfig123
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.4
+
+volumes:
+  mysql_data:
+  node_modules:
+
+networks:
+  nodeconfig_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 EOFDC
 
-    # 创建 Dockerfile
-    cat > Dockerfile << 'EOFD'
-FROM node:18
-WORKDIR /app/src
-RUN apt-get update && apt-get install -y curl default-mysql-client tzdata git
-RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-COPY src/package*.json ./
-RUN npm config set registry https://registry.npmmirror.com
-RUN npm install
-COPY src/ .
-EXPOSE 3000
-CMD ["npm", "start"]
-EOFD
-
-    # 创建 package.json
-    mkdir -p src
-    cat > src/package.json << 'EOFP'
-{
-  "name": "node-config-generator",
-  "version": "1.0.0",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.17.1",
-    "mysql2": "^2.3.3"
-  }
-}
-EOFP
-
-    # 创建基础服务文件
-    cat > src/server.js << 'EOFS'
-const express = require('express');
-const app = express();
-const port = 3000;
-
-app.get('/', (req, res) => {
-  res.send('NodeConfig is running!');
-});
-
-app.get('/health', (req, res) => {
-  res.send('OK');
-});
-
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
-EOFS
+    # 创建网络
+    docker network create --subnet=172.20.0.0/16 nodeconfig_net || true
 
     # 启动服务
     log "${yellow}启动服务...${plain}"
+    cd "${INSTALL_DIR}"
     docker-compose up -d --build || handle_error "启动服务失败"
     
     # 检查服务状态
