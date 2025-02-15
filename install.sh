@@ -34,13 +34,23 @@ recover_from_error() {
     log "${yellow}尝试从错误中恢复...${plain}"
     
     # 停止所有容器
-    docker-compose down 2>/dev/null
+    cd "${INSTALL_DIR}" && docker-compose down 2>/dev/null
     
     # 清理容器和镜像
     docker system prune -f
     
+    # 清理所有相关网络
+    docker network rm nodeconfig_net nodeconfig_nodeconfig_net 2>/dev/null
+    
+    # 删除所有 172.20.0.0/16 网段的网络
+    for net in $(docker network ls --filter driver=bridge --format "{{.Name}}"); do
+        if docker network inspect "$net" | grep -q "172.20.0.0/16"; then
+            docker network rm "$net" 2>/dev/null
+        fi
+    done
+    
     # 重新创建网络
-    docker network create --subnet=172.20.0.0/16 nodeconfig_net 2>/dev/null
+    docker network create --subnet=172.21.0.0/16 nodeconfig_net 2>/dev/null || true
     
     # 重新部署
     deploy_service
@@ -381,11 +391,19 @@ deploy_service() {
         rm -rf $INSTALL_DIR
     fi
 
+    # 清理可能存在的网络
+    docker network rm nodeconfig_net nodeconfig_nodeconfig_net 2>/dev/null
+    for net in $(docker network ls --filter driver=bridge --format "{{.Name}}"); do
+        if docker network inspect "$net" | grep -q "172.20.0.0/16"; then
+            docker network rm "$net" 2>/dev/null
+        fi
+    done
+
     # 创建工作目录
     mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
-    # 创建 docker-compose.yml
+    # 修改 docker-compose.yml 中的网络配置
     cat > docker-compose.yml << 'EOFDC'
 version: '3'
 services:
@@ -409,7 +427,7 @@ services:
       - mysql
     networks:
       nodeconfig_net:
-        ipv4_address: 172.20.0.2
+        ipv4_address: 172.21.0.2
 
   mysql:
     image: mysql:8.0
@@ -427,7 +445,7 @@ services:
       - mysql_data:/var/lib/mysql
     networks:
       nodeconfig_net:
-        ipv4_address: 172.20.0.3
+        ipv4_address: 172.21.0.3
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
@@ -443,7 +461,7 @@ services:
       - mysql
     networks:
       nodeconfig_net:
-        ipv4_address: 172.20.0.4
+        ipv4_address: 172.21.0.4
 
 volumes:
   mysql_data:
@@ -454,7 +472,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16
+        - subnet: 172.21.0.0/16
 EOFDC
 
     # 创建 Dockerfile
@@ -502,12 +520,12 @@ EOF
 EOF
 
     # 创建网络（如果不存在）
-    docker network create --subnet=172.20.0.0/16 nodeconfig_net 2>/dev/null || true
+    docker network create --subnet=172.21.0.0/16 nodeconfig_net 2>/dev/null || true
 
     # 启动服务
     log "${yellow}启动服务...${plain}"
     cd "${INSTALL_DIR}" || handle_error "进入安装目录失败"
-    ls -la || handle_error "列出目录内容失败"
+    docker-compose pull || handle_error "拉取镜像失败"
     docker-compose up -d --build || handle_error "启动服务失败"
     
     # 等待服务启动
