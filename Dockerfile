@@ -17,15 +17,8 @@ RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
 # 创建基础目录结构
 RUN mkdir -p /app/src /app/logs
 
-# 设置工作目录权限
-RUN chown -R node:node /app && \
-    chmod -R 755 /app
-
-# 切换到非 root 用户
-USER node
-
-# 配置 npm - 只使用最基本的镜像源配置
-RUN npm config set registry https://registry.npmmirror.com
+# 创建 .npmrc 文件
+RUN echo "registry=https://registry.npmmirror.com" > /root/.npmrc
 
 EXPOSE 3000
 

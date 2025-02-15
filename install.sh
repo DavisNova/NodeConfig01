@@ -406,22 +406,23 @@ app.listen(port, () => {
 });
 EOF
 
-    # 创建 .npmrc 文件
-    cat > src/.npmrc << 'EOF'
-registry=https://registry.npmmirror.com
-EOF
-
     # 清理旧的容器和网络
-    docker-compose down 2>/dev/null
-    docker network rm nodeconfig_default 2>/dev/null
+    docker-compose down --volumes --remove-orphans 2>/dev/null
+    docker network prune -f
+    docker volume prune -f
+
+    # 删除所有相关的网络
+    for net in $(docker network ls --filter name=nodeconfig --format "{{.Name}}"); do
+        docker network rm $net 2>/dev/null
+    done
 
     # 创建网络
     docker network create --subnet=172.21.0.0/16 nodeconfig_default 2>/dev/null || true
 
     # 构建并启动服务
     log "${yellow}构建并启动服务...${plain}"
-    docker-compose build --no-cache --pull || handle_error "构建服务失败"
-    docker-compose up -d --force-recreate || handle_error "启动服务失败"
+    DOCKER_BUILDKIT=0 docker-compose build --no-cache || handle_error "构建服务失败"
+    docker-compose up -d || handle_error "启动服务失败"
 
     # 等待服务启动
     log "${yellow}等待服务启动...${plain}"
