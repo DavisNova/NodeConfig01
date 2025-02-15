@@ -18,8 +18,7 @@ services:
       - ./src:/app/src
       - node_modules:/app/src/node_modules
     depends_on:
-      mysql:
-        condition: service_healthy
+      - mysql
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 30s
@@ -49,7 +48,6 @@ services:
       - MYSQL_PASSWORD=nodeconfig123
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "nodeconfig", "-pnodeconfig123"]
       interval: 10s
@@ -72,8 +70,7 @@ services:
       - UPLOAD_LIMIT=300M
       - PMA_ABSOLUTE_URI=http://${SERVER_IP:-localhost}:8080/
     depends_on:
-      mysql:
-        condition: service_healthy
+      - mysql
     networks:
       nodeconfig_net:
         ipv4_address: 172.20.0.4
