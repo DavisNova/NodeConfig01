@@ -24,12 +24,8 @@ RUN chown -R node:node /app && \
 # 切换到非 root 用户
 USER node
 
-# 配置 npm
-RUN npm config set registry https://registry.npmmirror.com && \
-    npm config set @types:registry https://registry.npmmirror.com && \
-    npm config set electron_mirror https://npmmirror.com/mirrors/electron/ && \
-    npm config set sass_binary_site https://npmmirror.com/mirrors/node-sass && \
-    npm config set phantomjs_cdnurl https://npmmirror.com/mirrors/phantomjs
+# 配置 npm - 只使用最基本的镜像源配置
+RUN npm config set registry https://registry.npmmirror.com
 
 EXPOSE 3000
 
