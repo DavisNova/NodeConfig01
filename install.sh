@@ -475,7 +475,8 @@ EOF
 
     # 构建并启动服务
     log "${yellow}构建并启动服务...${plain}"
-    docker-compose up -d --build || handle_error "启动服务失败"
+    docker-compose build --no-cache || handle_error "构建服务失败"
+    docker-compose up -d || handle_error "启动服务失败"
 
     # 等待服务启动
     log "${yellow}等待服务启动...${plain}"

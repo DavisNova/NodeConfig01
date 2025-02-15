@@ -26,7 +26,10 @@ USER node
 
 # 配置 npm
 RUN npm config set registry https://registry.npmmirror.com && \
-    npm config set disturl https://npmmirror.com/dist
+    npm config set @types:registry https://registry.npmmirror.com && \
+    npm config set electron_mirror https://npmmirror.com/mirrors/electron/ && \
+    npm config set sass_binary_site https://npmmirror.com/mirrors/node-sass && \
+    npm config set phantomjs_cdnurl https://npmmirror.com/mirrors/phantomjs
 
 EXPOSE 3000
 
