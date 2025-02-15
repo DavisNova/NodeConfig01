@@ -385,6 +385,92 @@ deploy_service() {
     mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
+    # 创建 docker-compose.yml
+    cat > docker-compose.yml << 'EOFDC'
+version: '3'
+services:
+  nodeconfig:
+    build: .
+    container_name: nodeconfig
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=mysql
+      - DB_USER=nodeconfig
+      - DB_PASSWORD=nodeconfig123
+      - DB_NAME=nodeconfig_db
+      - SERVER_IP=${SERVER_IP:-localhost}
+    volumes:
+      - ./src:/app/src
+      - node_modules:/app/src/node_modules
+    depends_on:
+      - mysql
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.2
+
+  mysql:
+    image: mysql:8.0
+    container_name: nodeconfig-mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=nodeconfig_db
+      - MYSQL_USER=nodeconfig
+      - MYSQL_PASSWORD=nodeconfig123
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.3
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: nodeconfig-phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=mysql
+      - MYSQL_ROOT_PASSWORD=root123
+      - PMA_USER=nodeconfig
+      - PMA_PASSWORD=nodeconfig123
+    depends_on:
+      - mysql
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.20.0.4
+
+volumes:
+  mysql_data:
+  node_modules:
+
+networks:
+  nodeconfig_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+EOFDC
+
+    # 创建 Dockerfile
+    cat > Dockerfile << 'EOFD'
+FROM node:18
+WORKDIR /app/src
+RUN apt-get update && apt-get install -y curl default-mysql-client tzdata git
+RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+COPY src/package*.json ./
+RUN npm config set registry https://registry.npmmirror.com
+RUN npm install
+COPY src/ .
+EXPOSE 3000
+CMD ["npm", "start"]
+EOFD
+
     # 创建基础服务文件
     cat > src/server.js << 'EOF'
 const express = require('express');
@@ -420,8 +506,8 @@ EOF
 
     # 启动服务
     log "${yellow}启动服务...${plain}"
-    cd "${INSTALL_DIR}"
-    docker-compose pull || handle_error "拉取镜像失败"
+    cd "${INSTALL_DIR}" || handle_error "进入安装目录失败"
+    ls -la || handle_error "列出目录内容失败"
     docker-compose up -d --build || handle_error "启动服务失败"
     
     # 等待服务启动
