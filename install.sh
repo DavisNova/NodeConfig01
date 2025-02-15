@@ -375,33 +375,17 @@ deploy_service() {
     mkdir -p "${INSTALL_DIR}/src" || handle_error "创建工作目录失败"
     cd "${INSTALL_DIR}" || handle_error "进入工作目录失败"
 
-    # 创建 Dockerfile
-    cat > Dockerfile << 'EOF'
-FROM node:18
+    # 清理旧的容器和网络
+    docker-compose down --volumes --remove-orphans 2>/dev/null || true
+    docker network prune -f
 
-WORKDIR /app/src
+    # 确保删除所有相关网络
+    for net in $(docker network ls --filter name=nodeconfig --format "{{.Name}}"); do
+        docker network rm $net 2>/dev/null || true
+    done
 
-RUN apt-get update && apt-get install -y \
-    curl \
-    default-mysql-client \
-    tzdata \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone
-
-RUN mkdir -p /app/src /app/logs
-
-RUN echo "registry=https://registry.npmmirror.com" > /root/.npmrc
-
-EXPOSE 3000
-
-HEALTHCHECK --interval=30s --timeout=3s \
-    CMD curl -f http://localhost:3000/ || exit 1
-
-CMD ["npm", "start"]
-EOF
+    # 创建新的网络
+    docker network create --subnet=172.21.0.0/16 nodeconfig_net 2>/dev/null || true
 
     # 创建 docker-compose.yml
     cat > docker-compose.yml << 'EOF'
@@ -419,15 +403,12 @@ services:
     volumes:
       - ./src:/app/src
     networks:
-      default:
+      nodeconfig_net:
         ipv4_address: 172.21.0.2
 
 networks:
-  default:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.21.0.0/16
+  nodeconfig_net:
+    external: true
 EOF
 
     # 创建 package.json
@@ -461,22 +442,13 @@ app.listen(port, () => {
 });
 EOF
 
-    # 清理旧的容器和网络
-    docker-compose down --volumes --remove-orphans 2>/dev/null
-    docker network prune -f
-    docker volume prune -f
-
-    # 删除所有相关的网络
-    for net in $(docker network ls --filter name=nodeconfig --format "{{.Name}}"); do
-        docker network rm $net 2>/dev/null
-    done
-
-    # 创建网络
-    docker network create --subnet=172.21.0.0/16 nodeconfig_default 2>/dev/null || true
+    # 安装依赖
+    cd src && npm install || handle_error "安装依赖失败"
+    cd ..
 
     # 构建并启动服务
     log "${yellow}构建并启动服务...${plain}"
-    docker-compose build --no-cache || handle_error "构建服务失败"
+    COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker-compose build --no-cache || handle_error "构建服务失败"
     docker-compose up -d || handle_error "启动服务失败"
 
     # 等待服务启动
