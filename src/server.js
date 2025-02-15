@@ -8,8 +8,12 @@ const moment = require('moment');
 const { v4: uuidv4 } = require('uuid');
 const session = require('express-session');
 const MySQLStore = require('connect-mysql')(session);
+const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
 
 const app = express();
+const port = 3000;
 
 // 数据库配置
 const dbConfig = {
@@ -38,6 +42,9 @@ app.use(session({
 
 // 中间件配置
 app.use(express.json());
+app.use(cors());
+app.use(helmet());
+app.use(compression());
 
 // 请求日志中间件
 app.use((req, res, next) => {
@@ -727,8 +734,37 @@ function updateProxyGroups(template, proxies) {
     ];
 }
 
-// 启动服务器
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`服务器运行在端口 ${PORT}`);
+// 健康检查路由
+app.get('/health', (req, res) => {
+  res.send('OK');
 });
+
+// 根路由
+app.get('/', (req, res) => {
+  res.json({
+    status: 'running',
+    version: '1.0.0',
+    serverTime: new Date().toISOString()
+  });
+});
+
+// 启动服务器
+const startServer = async () => {
+  try {
+    // 测试数据库连接
+    const connection = await mysql.createConnection(dbConfig);
+    await connection.ping();
+    console.log('数据库连接成功');
+    await connection.end();
+
+    // 启动服务器
+    app.listen(port, () => {
+      console.log(`服务器运行在 http://localhost:${port}`);
+    });
+  } catch (error) {
+    console.error('启动失败:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
