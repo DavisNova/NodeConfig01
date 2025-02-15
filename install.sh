@@ -218,14 +218,19 @@ install_base() {
     # 配置Docker镜像加速
     mkdir -p /etc/docker
     cat > /etc/docker/daemon.json << EOF
-    {
-        "registry-mirrors": [
-            "https://mirror.ccs.tencentyun.com",
-            "https://docker.mirrors.ustc.edu.cn",
-            "https://hub-mirror.c.163.com"
-        ]
+{
+    "registry-mirrors": [
+        "https://mirror.ccs.tencentyun.com",
+        "https://docker.mirrors.ustc.edu.cn",
+        "https://hub-mirror.c.163.com"
+    ],
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "100m",
+        "max-file": "3"
     }
-    EOF
+}
+EOF
     
     # 重启Docker服务
     systemctl daemon-reload
@@ -351,6 +356,17 @@ check_network() {
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
     
+    # 检查 Docker 和 Docker Compose 是否已安装
+    if ! command -v docker >/dev/null 2>&1; then
+        log "${red}Docker 未安装，请先选择选项 1 安装依赖${plain}"
+        return 1
+    fi
+
+    if ! command -v docker-compose >/dev/null 2>&1; then
+        log "${red}Docker Compose 未安装，请先选择选项 1 安装依赖${plain}"
+        return 1
+    fi
+
     # 检查必要端口
     check_port 3000
     check_port 3306
@@ -703,19 +719,31 @@ show_menu() {
                 continue
                 ;;
             3)
-                cd $INSTALL_DIR && docker-compose up -d
+                if [ -d "$INSTALL_DIR" ]; then
+                    cd $INSTALL_DIR && docker-compose up -d
+                else
+                    log "${red}服务未安装，请先选择选项 2 部署服务${plain}"
+                fi
                 echo -e "${green}服务已启动！${plain}"
                 sleep 2
                 continue
                 ;;
             4)
-                cd $INSTALL_DIR && docker-compose down
+                if [ -d "$INSTALL_DIR" ]; then
+                    cd $INSTALL_DIR && docker-compose down
+                else
+                    log "${red}服务未安装，无需停止${plain}"
+                fi
                 echo -e "${green}服务已停止！${plain}"
                 sleep 2
                 continue
                 ;;
             5)
-                cd $INSTALL_DIR && docker-compose restart
+                if [ -d "$INSTALL_DIR" ]; then
+                    cd $INSTALL_DIR && docker-compose restart
+                else
+                    log "${red}服务未安装，请先选择选项 2 部署服务${plain}"
+                fi
                 echo -e "${green}服务已重启！${plain}"
                 sleep 2
                 continue
