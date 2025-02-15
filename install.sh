@@ -183,75 +183,48 @@ install_base() {
         esac
     fi
     
-    # 检查是否已安装
-    if command -v docker >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1; then
-        log "${green}Docker 和 Docker Compose 已安装${plain}"
-        return 0
-    fi
-    
     log "${yellow}开始安装依赖...${plain}"
     
-    # 配置apt国内源
-    cp /etc/apt/sources.list /etc/apt/sources.list.bak
-    cat > /etc/apt/sources.list << EOF
-    deb https://mirrors.aliyun.com/debian/ bullseye main contrib non-free
-    deb https://mirrors.aliyun.com/debian/ bullseye-updates main contrib non-free
-    deb https://mirrors.aliyun.com/debian/ bullseye-backports main contrib non-free
-    deb https://mirrors.aliyun.com/debian-security bullseye-security main contrib non-free
-EOF
+    # 更新软件包列表
+    apt-get update
 
-    # 更新系统包并安装依赖
-    apt update || handle_error "更新包列表失败"
-    apt install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release || handle_error "安装基础依赖失败"
-
-    # 配置Docker镜像加速
-    mkdir -p /etc/docker
-    cat > /etc/docker/daemon.json << 'EOFDOCKER'
-{
-    "registry-mirrors": [
-        "https://registry.cn-hangzhou.aliyuncs.com",
-        "https://mirror.ccs.tencentyun.com",
-        "https://docker.mirrors.ustc.edu.cn"
-    ],
-    "max-concurrent-downloads": 10,
-    "max-concurrent-uploads": 5,
-    "experimental": true
-}
-EOFDOCKER
-
-    # 安装Docker
-    log "${yellow}安装Docker...${plain}"
-    if ! curl -fsSL https://get.docker.com | sh; then
-        handle_error "Docker安装失败"
+    # 安装 Node.js 和 npm
+    if ! command -v node >/dev/null 2>&1; then
+        log "${yellow}安装 Node.js 和 npm...${plain}"
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs
     fi
 
-    # 启动Docker服务
-    systemctl daemon-reload
-    systemctl restart docker || handle_error "启动Docker服务失败"
-    systemctl enable docker || handle_error "设置Docker开机启动失败"
+    # 安装基础依赖
+    apt-get install -y \
+        curl \
+        wget \
+        git \
+        vim \
+        lsof \
+        tar \
+        unzip \
+        jq \
+        ca-certificates \
+        gnupg \
+        lsb-release
+
+    # 安装 Docker
+    if ! command -v docker >/dev/null 2>&1; then
+        log "${yellow}安装 Docker...${plain}"
+        curl -fsSL https://get.docker.com | bash -s docker
+        systemctl enable docker
+        systemctl start docker
+    fi
 
     # 安装 Docker Compose
-    echo -e "${yellow}安装 Docker Compose...${plain}"
-    curl -L "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
-    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
-
-    # 验证安装
-    echo -e "${yellow}验证安装...${plain}"
-    if ! command -v docker &> /dev/null; then
-        echo -e "${red}Docker 安装失败${plain}"
-        exit 1
-    fi
-    if ! command -v docker-compose &> /dev/null; then
-        echo -e "${red}Docker Compose 安装失败${plain}"
-        exit 1
+    if ! command -v docker-compose >/dev/null 2>&1; then
+        log "${yellow}安装 Docker Compose...${plain}"
+        curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        chmod +x /usr/local/bin/docker-compose
     fi
 
-    docker --version
-    docker-compose --version
-
-    echo -e "${green}依赖安装完成！${plain}"
-    sleep 2
+    log "${green}依赖安装完成${plain}"
 }
 
 # 添加健康检查函数
@@ -375,6 +348,11 @@ deploy_service() {
     mkdir -p "${INSTALL_DIR}/src" || handle_error "创建工作目录失败"
     cd "${INSTALL_DIR}" || handle_error "进入工作目录失败"
 
+    # 确保 Node.js 和 npm 已安装
+    if ! command -v npm >/dev/null 2>&1; then
+        install_base
+    fi
+
     # 清理旧的容器和网络
     docker-compose down --volumes --remove-orphans 2>/dev/null || true
     docker network prune -f
@@ -411,6 +389,31 @@ networks:
     external: true
 EOF
 
+    # 创建 Dockerfile
+    cat > Dockerfile << 'EOF'
+FROM node:18
+
+WORKDIR /app/src
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    default-mysql-client \
+    tzdata \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone
+
+RUN mkdir -p /app/src /app/logs
+
+RUN echo "registry=https://registry.npmmirror.com" > /root/.npmrc
+
+EXPOSE 3000
+
+CMD ["npm", "start"]
+EOF
+
     # 创建 package.json
     cat > src/package.json << 'EOF'
 {
@@ -443,12 +446,14 @@ app.listen(port, () => {
 EOF
 
     # 安装依赖
-    cd src && npm install || handle_error "安装依赖失败"
+    cd src
+    npm config set registry https://registry.npmmirror.com
+    npm install || handle_error "安装依赖失败"
     cd ..
 
     # 构建并启动服务
     log "${yellow}构建并启动服务...${plain}"
-    COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker-compose build --no-cache || handle_error "构建服务失败"
+    docker-compose build --no-cache || handle_error "构建服务失败"
     docker-compose up -d || handle_error "启动服务失败"
 
     # 等待服务启动
