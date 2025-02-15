@@ -375,6 +375,61 @@ deploy_service() {
     mkdir -p "${INSTALL_DIR}/src" || handle_error "创建工作目录失败"
     cd "${INSTALL_DIR}" || handle_error "进入工作目录失败"
 
+    # 创建 Dockerfile
+    cat > Dockerfile << 'EOF'
+FROM node:18
+
+WORKDIR /app/src
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    default-mysql-client \
+    tzdata \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone
+
+RUN mkdir -p /app/src /app/logs
+
+RUN echo "registry=https://registry.npmmirror.com" > /root/.npmrc
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD curl -f http://localhost:3000/ || exit 1
+
+CMD ["npm", "start"]
+EOF
+
+    # 创建 docker-compose.yml
+    cat > docker-compose.yml << 'EOF'
+version: '3'
+services:
+  nodeconfig:
+    build: .
+    container_name: nodeconfig
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+    volumes:
+      - ./src:/app/src
+    networks:
+      default:
+        ipv4_address: 172.21.0.2
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+EOF
+
     # 创建 package.json
     cat > src/package.json << 'EOF'
 {
@@ -421,7 +476,7 @@ EOF
 
     # 构建并启动服务
     log "${yellow}构建并启动服务...${plain}"
-    DOCKER_BUILDKIT=0 docker-compose build --no-cache || handle_error "构建服务失败"
+    docker-compose build --no-cache || handle_error "构建服务失败"
     docker-compose up -d || handle_error "启动服务失败"
 
     # 等待服务启动
