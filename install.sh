@@ -371,138 +371,9 @@ check_network() {
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
     
-    # 检查必要端口
-    check_port 3000
-    check_port 3306
-    check_port 8080
-    
-    # 确保 Docker 服务正在运行
-    systemctl start docker || handle_error "启动 Docker 服务失败"
-    systemctl enable docker
-    
-    # 停止并清理现有服务
-    if [ -d "$INSTALL_DIR" ]; then
-        log "${yellow}停止现有服务...${plain}"
-        if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
-            cd $INSTALL_DIR && docker-compose down 2>/dev/null
-        fi
-        cd /
-        log "${yellow}清理旧文件...${plain}"
-        rm -rf $INSTALL_DIR
-    fi
-
-    # 清理可能存在的网络
-    docker network rm nodeconfig_net nodeconfig_nodeconfig_net 2>/dev/null
-    for net in $(docker network ls --filter driver=bridge --format "{{.Name}}"); do
-        if docker network inspect "$net" | grep -q "172.20.0.0/16"; then
-            docker network rm "$net" 2>/dev/null
-        fi
-    done
-
-    # 创建工作目录
-    mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
-    cd $INSTALL_DIR || handle_error "进入工作目录失败"
-
-    # 修改 docker-compose.yml 中的网络配置
-    cat > docker-compose.yml << 'EOFDC'
-version: '3'
-services:
-  nodeconfig:
-    build: .
-    container_name: nodeconfig
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      - DB_HOST=mysql
-      - DB_USER=nodeconfig
-      - DB_PASSWORD=nodeconfig123
-      - DB_NAME=nodeconfig_db
-      - SERVER_IP=${SERVER_IP:-localhost}
-    volumes:
-      - ./src:/app/src
-      - node_modules:/app/src/node_modules
-    depends_on:
-      - mysql
-    networks:
-      nodeconfig_net:
-        ipv4_address: 172.21.0.2
-
-  mysql:
-    image: mysql:8.0
-    container_name: nodeconfig-mysql
-    command: --default-authentication-plugin=mysql_native_password
-    restart: always
-    ports:
-      - "3306:3306"
-    environment:
-      - MYSQL_ROOT_PASSWORD=root123
-      - MYSQL_DATABASE=nodeconfig_db
-      - MYSQL_USER=nodeconfig
-      - MYSQL_PASSWORD=nodeconfig123
-    volumes:
-      - mysql_data:/var/lib/mysql
-    networks:
-      nodeconfig_net:
-        ipv4_address: 172.21.0.3
-
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin
-    container_name: nodeconfig-phpmyadmin
-    ports:
-      - "8080:80"
-    environment:
-      - PMA_HOST=mysql
-      - MYSQL_ROOT_PASSWORD=root123
-      - PMA_USER=nodeconfig
-      - PMA_PASSWORD=nodeconfig123
-    depends_on:
-      - mysql
-    networks:
-      nodeconfig_net:
-        ipv4_address: 172.21.0.4
-
-volumes:
-  mysql_data:
-  node_modules:
-
-networks:
-  nodeconfig_net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.21.0.0/16
-EOFDC
-
-    # 创建 Dockerfile
-    cat > Dockerfile << 'EOFD'
-FROM node:18
-WORKDIR /app/src
-RUN apt-get update && apt-get install -y curl default-mysql-client tzdata git
-RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-COPY src/package*.json ./
-RUN npm config set registry https://registry.npmmirror.com
-RUN npm install
-COPY src/ .
-EXPOSE 3000
-CMD ["npm", "start"]
-EOFD
-
-    # 创建基础服务文件
-    cat > src/server.js << 'EOF'
-const express = require('express');
-const app = express();
-const port = 3000;
-
-app.get('/', (req, res) => {
-  res.send('NodeConfig is running!');
-});
-
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
-EOF
+    # 创建必要的目录
+    mkdir -p "${INSTALL_DIR}/src" || handle_error "创建工作目录失败"
+    cd "${INSTALL_DIR}" || handle_error "进入工作目录失败"
 
     # 创建 package.json
     cat > src/package.json << 'EOF'
@@ -519,21 +390,103 @@ EOF
 }
 EOF
 
-    # 创建网络（如果不存在）
-    docker network create --subnet=172.21.0.0/16 nodeconfig_net 2>/dev/null || true
+    # 创建 server.js
+    cat > src/server.js << 'EOF'
+const express = require('express');
+const app = express();
+const port = 3000;
 
-    # 启动服务
-    log "${yellow}启动服务...${plain}"
-    cd "${INSTALL_DIR}" || handle_error "进入安装目录失败"
-    docker-compose pull || handle_error "拉取镜像失败"
+app.get('/', (req, res) => {
+  res.send('NodeConfig is running!');
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
+EOF
+
+    # 创建 Dockerfile
+    cat > Dockerfile << 'EOF'
+FROM node:18
+
+WORKDIR /app/src
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    default-mysql-client \
+    tzdata \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone
+
+RUN mkdir -p /app/src /app/logs
+
+RUN chown -R node:node /app && \
+    chmod -R 755 /app
+
+USER node
+
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm config set disturl https://npmmirror.com/dist
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD curl -f http://localhost:3000/ || exit 1
+
+CMD ["npm", "start"]
+EOF
+
+    # 创建 docker-compose.yml
+    cat > docker-compose.yml << 'EOF'
+version: '3'
+services:
+  nodeconfig:
+    build: .
+    container_name: nodeconfig
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+    volumes:
+      - ./src:/app/src
+    networks:
+      default:
+        ipv4_address: 172.21.0.2
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+EOF
+
+    # 清理旧的容器和网络
+    docker-compose down 2>/dev/null
+    docker network rm nodeconfig_default 2>/dev/null
+
+    # 创建网络
+    docker network create --subnet=172.21.0.0/16 nodeconfig_default 2>/dev/null || true
+
+    # 构建并启动服务
+    log "${yellow}构建并启动服务...${plain}"
     docker-compose up -d --build || handle_error "启动服务失败"
-    
+
     # 等待服务启动
     log "${yellow}等待服务启动...${plain}"
     sleep 10
-    
+
     # 检查服务状态
-    check_service_health
+    if ! curl -s http://localhost:3000 >/dev/null; then
+        handle_error "服务启动失败"
+    fi
+
+    log "${green}服务已成功启动${plain}"
 }
 
 # 添加更新功能
