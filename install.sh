@@ -361,43 +361,131 @@ check_network() {
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
     
-    # 配置 Docker 镜像加速
-    mkdir -p /etc/docker
-    cat > /etc/docker/daemon.json << EOF
-    {
-        "registry-mirrors": [
-            "https://registry.cn-hangzhou.aliyuncs.com",
-            "https://mirror.ccs.tencentyun.com",
-            "https://docker.mirrors.ustc.edu.cn"
-        ],
-        "max-concurrent-downloads": 10,
-        "max-concurrent-uploads": 5,
-        "experimental": true
-    }
-    EOF
-
-    # 重启 Docker 服务
-    systemctl daemon-reload
-    systemctl restart docker
-
-    # 等待 Docker 服务就绪
-    sleep 5
-
     # 检查必要端口
     check_port 3000
     check_port 3306
     check_port 8080
     
-    # 创建网络
-    docker network create --subnet=172.20.0.0/16 nodeconfig_net || true
+    # 停止并清理现有服务
+    if [ -d "$INSTALL_DIR" ]; then
+        log "${yellow}停止现有服务...${plain}"
+        if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
+            cd $INSTALL_DIR && docker-compose down 2>/dev/null
+        fi
+        cd /
+        log "${yellow}清理旧文件...${plain}"
+        rm -rf $INSTALL_DIR
+    fi
 
     # 创建工作目录
     mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
+    # 创建 docker-compose.yml
+    cat > docker-compose.yml << 'EOFDC'
+version: '3'
+services:
+  nodeconfig:
+    build: .
+    container_name: nodeconfig
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=mysql
+      - DB_USER=nodeconfig
+      - DB_PASSWORD=nodeconfig123
+      - DB_NAME=nodeconfig_db
+      - SERVER_IP=${SERVER_IP:-localhost}
+    volumes:
+      - ./src:/app/src
+      - node_modules:/app/src/node_modules
+    depends_on:
+      mysql:
+        condition: service_healthy
+EOFDC
+
+    # 创建 Dockerfile
+    cat > Dockerfile << 'EOFD'
+FROM node:18
+WORKDIR /app/src
+RUN apt-get update && apt-get install -y curl default-mysql-client tzdata git
+RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+COPY src/package*.json ./
+RUN npm config set registry https://registry.npmmirror.com
+RUN npm install
+COPY src/ .
+EXPOSE 3000
+CMD ["npm", "start"]
+EOFD
+
+    # 创建 package.json
+    mkdir -p src
+    cat > src/package.json << 'EOFP'
+{
+  "name": "node-config-generator",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "mysql2": "^2.3.3"
+  }
+}
+EOFP
+
+    # 创建基础服务文件
+    cat > src/server.js << 'EOFS'
+const express = require('express');
+const app = express();
+const port = 3000;
+
+app.get('/', (req, res) => {
+  res.send('NodeConfig is running!');
+});
+
+app.get('/health', (req, res) => {
+  res.send('OK');
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
+EOFS
+
+    # 配置 Docker 镜像源
+    mkdir -p /etc/docker
+    cat > /etc/docker/daemon.json << EOF
+{
+    "registry-mirrors": [
+        "https://mirror.ccs.tencentyun.com",
+        "https://registry.docker-cn.com",
+        "https://docker.mirrors.ustc.edu.cn",
+        "https://hub-mirror.c.163.com"
+    ],
+    "experimental": true,
+    "max-concurrent-downloads": 10
+}
+EOF
+
+    # 重启 Docker 服务
+    systemctl daemon-reload
+    systemctl restart docker
+    sleep 5
+
     # 拉取基础镜像
-    log "${yellow}拉取基础镜像...${plain}"
-    docker pull node:18-slim || handle_error "拉取基础镜像失败"
+    for i in {1..3}; do
+        if docker pull node:18; then
+            break
+        fi
+        log "${yellow}拉取镜像失败，第 $i 次重试...${plain}"
+        sleep 5
+    done
+
+    # 拉取 MySQL 镜像
     docker pull mysql:8.0 || handle_error "拉取 MySQL 镜像失败"
     docker pull phpmyadmin/phpmyadmin || handle_error "拉取 phpMyAdmin 镜像失败"
 

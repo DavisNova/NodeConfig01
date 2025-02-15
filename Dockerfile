@@ -1,4 +1,4 @@
-FROM node:18-slim
+FROM node:18
 
 WORKDIR /app/src
 
@@ -18,10 +18,12 @@ RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
 # 复制 package.json
 COPY src/package*.json ./
 
-# 使用国内镜像源安装依赖
-RUN npm config set registry https://registry.npmmirror.com \
-    && npm install \
-    && npm cache clean --force
+# 使用多个镜像源提高成功率
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm config set disturl https://npmmirror.com/dist && \
+    npm config set sass_binary_site https://npmmirror.com/mirrors/node-sass && \
+    npm install && \
+    npm cache clean --force
 
 # 复制其他源代码
 COPY src/ .
