@@ -196,7 +196,7 @@ EOF
 
     # 配置Docker镜像加速
     mkdir -p /etc/docker
-    cat > /etc/docker/daemon.json << EOF
+    cat > /etc/docker/daemon.json << 'EOFDOCKER'
 {
     "registry-mirrors": [
         "https://registry.cn-hangzhou.aliyuncs.com",
@@ -207,7 +207,7 @@ EOF
     "max-concurrent-uploads": 5,
     "experimental": true
 }
-EOF
+EOFDOCKER
 
     # 安装Docker
     log "${yellow}安装Docker...${plain}"
@@ -381,6 +381,26 @@ deploy_service() {
     mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
+    # 配置 Docker 镜像源
+    mkdir -p /etc/docker
+    cat > /etc/docker/daemon.json << 'EOFDOCKER'
+{
+    "registry-mirrors": [
+        "https://mirror.ccs.tencentyun.com",
+        "https://registry.docker-cn.com",
+        "https://docker.mirrors.ustc.edu.cn",
+        "https://hub-mirror.c.163.com"
+    ],
+    "experimental": true,
+    "max-concurrent-downloads": 10
+}
+EOFDOCKER
+
+    # 重启 Docker 服务
+    systemctl daemon-reload
+    systemctl restart docker
+    sleep 5
+
     # 创建 docker-compose.yml
     cat > docker-compose.yml << 'EOFDC'
 version: '3'
@@ -456,43 +476,10 @@ app.listen(port, () => {
 });
 EOFS
 
-    # 配置 Docker 镜像源
-    mkdir -p /etc/docker
-    cat > /etc/docker/daemon.json << EOF
-{
-    "registry-mirrors": [
-        "https://mirror.ccs.tencentyun.com",
-        "https://registry.docker-cn.com",
-        "https://docker.mirrors.ustc.edu.cn",
-        "https://hub-mirror.c.163.com"
-    ],
-    "experimental": true,
-    "max-concurrent-downloads": 10
-}
-EOF
-
-    # 重启 Docker 服务
-    systemctl daemon-reload
-    systemctl restart docker
-    sleep 5
-
-    # 拉取基础镜像
-    for i in {1..3}; do
-        if docker pull node:18; then
-            break
-        fi
-        log "${yellow}拉取镜像失败，第 $i 次重试...${plain}"
-        sleep 5
-    done
-
-    # 拉取 MySQL 镜像
-    docker pull mysql:8.0 || handle_error "拉取 MySQL 镜像失败"
-    docker pull phpmyadmin/phpmyadmin || handle_error "拉取 phpMyAdmin 镜像失败"
-
     # 启动服务
     log "${yellow}启动服务...${plain}"
-    docker-compose up -d --build --force-recreate || handle_error "启动服务失败"
-
+    docker-compose up -d --build || handle_error "启动服务失败"
+    
     # 检查服务状态
     check_service_health
 }
