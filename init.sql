@@ -25,13 +25,19 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 
 -- 创建节点表
 CREATE TABLE IF NOT EXISTS nodes (
-    id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    type VARCHAR(20) NOT NULL,
-    config JSON NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    subscription_id INT NOT NULL COMMENT '关联的订阅ID',
+    node_type ENUM('vless', 'socks5') NOT NULL COMMENT '节点类型',
+    node_url TEXT NOT NULL COMMENT '节点链接',
+    node_name VARCHAR(100) COMMENT '节点名称',
+    node_status ENUM('online', 'offline') DEFAULT 'online' COMMENT '节点状态',
+    last_check_time DATETIME COMMENT '最后检查时间',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE,
+    INDEX idx_subscription_id (subscription_id),
+    INDEX idx_node_type (node_type),
+    INDEX idx_node_status (node_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='节点详情表';
 
 -- 创建管理员表
 CREATE TABLE IF NOT EXISTS admins (
@@ -65,7 +71,7 @@ CREATE TABLE IF NOT EXISTS operation_logs (
     FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作日志表';
 
--- 插入默认管理员账户
+-- 插入默认管理员账号（密码：admin123）
 INSERT INTO admins (username, password, role, email) 
 VALUES ('admin', SHA2('admin123', 256), 'super_admin', 'admin@example.com')
 ON DUPLICATE KEY UPDATE 
@@ -92,17 +98,3 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话表';
-
-CREATE TABLE IF NOT EXISTS users (
-    id VARCHAR(36) PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    password VARCHAR(100) NOT NULL,
-    email VARCHAR(100) UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
--- 插入默认管理员账户
-INSERT INTO users (id, username, password) 
-VALUES (UUID(), 'admin', '$2a$10$YourHashedPasswordHere')
-ON DUPLICATE KEY UPDATE username=username;

@@ -1,31 +1,25 @@
-FROM node:18-alpine
-
-# 启用 buildkit 缓存挂载
-# syntax=docker/dockerfile:1.4
+FROM node:18-slim
 
 WORKDIR /app/src
 
-# 修改 apk 源为国内源并安装依赖
-RUN --mount=type=cache,target=/var/cache/apk \
-    sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
-    && apk update \
-    && apk add --no-cache \
+# 修改系统源并安装依赖
+RUN apt-get update && apt-get install -y \
     curl \
-    mysql-client \
+    default-mysql-client \
     tzdata \
-    git
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
 # 设置时区
 RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo "Asia/Shanghai" > /etc/timezone \
-    && apk del tzdata
+    && rm -rf /var/lib/apt/lists/*
 
-# 复制 package.json 和 package-lock.json（如果存在）
+# 复制 package.json
 COPY src/package*.json ./
 
-# 使用淘宝镜像源安装依赖
-RUN --mount=type=cache,target=/root/.npm \
-    npm config set registry https://registry.npmmirror.com \
+# 使用国内镜像源安装依赖
+RUN npm config set registry https://registry.npmmirror.com \
     && npm install \
     && npm cache clean --force
 

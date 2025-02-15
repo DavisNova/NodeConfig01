@@ -2,7 +2,7 @@
 
 # 版本信息
 VERSION="1.0.0"
-SCRIPT_URL="https://raw.githubusercontent.com/DavisNova/NodeConfig01/main/install.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/DavisNova/NodeConfig01/refs/heads/main/install.sh"
 GITHUB_REPO="DavisNova/NodeConfig01"
 INSTALL_DIR="/opt/nodeconfig"
 BACKUP_DIR="/opt/nodeconfig-backup"
@@ -17,13 +17,10 @@ plain='\033[0m'
 
 # 在文件开头添加源配置
 DOCKER_MIRRORS=(
-    "https://registry.cn-hangzhou.aliyuncs.com"
     "https://mirror.ccs.tencentyun.com"
+    "https://registry.docker-cn.com"
     "https://docker.mirrors.ustc.edu.cn"
     "https://hub-mirror.c.163.com"
-    "https://registry.docker-cn.com"
-    "https://registry.cn-beijing.aliyuncs.com"
-    "https://registry.cn-shenzhen.aliyuncs.com"
 )
 
 # 日志函数
@@ -32,10 +29,35 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${1}" >> $LOG_FILE
 }
 
+# 错误恢复函数
+recover_from_error() {
+    log "${yellow}尝试从错误中恢复...${plain}"
+    
+    # 停止所有容器
+    docker-compose down 2>/dev/null
+    
+    # 清理容器和镜像
+    docker system prune -f
+    
+    # 重新创建网络
+    docker network create --subnet=172.20.0.0/16 nodeconfig_net 2>/dev/null
+    
+    # 重新部署
+    deploy_service
+}
+
 # 错误处理
 handle_error() {
     log "${red}错误: $1${plain}"
-    exit 1
+    read -p "是否尝试恢复? [y/N] " choice
+    case "$choice" in
+        y|Y )
+            recover_from_error
+            ;;
+        * )
+            exit 1
+            ;;
+    esac
 }
 
 # 清屏函数
@@ -139,42 +161,6 @@ init_env() {
     echo "系统信息: $(uname -a)" >> ${LOG_FILE}
 }
 
-# 测试镜像源速度
-test_mirror_speed() {
-    local mirror=$1
-    local start_time=$(date +%s)
-    if curl -s --connect-timeout 3 "${mirror}/v2/" &>/dev/null; then
-        local end_time=$(date +%s)
-        echo "$((end_time - start_time))"
-        return 0
-    fi
-    echo "999999"
-    return 1
-}
-
-# 选择最快的镜像源
-select_fastest_mirror() {
-    log "${yellow}正在测试镜像源速度...${plain}"
-    local fastest_mirror=""
-    local fastest_speed=999999
-    
-    for mirror in "${DOCKER_MIRRORS[@]}"; do
-        log "${yellow}测试镜像源: ${mirror}${plain}"
-        local speed=$(test_mirror_speed "$mirror")
-        if (( $(echo "$speed < $fastest_speed" | bc -l) )); then
-            fastest_speed=$speed
-            fastest_mirror=$mirror
-        fi
-    done
-    
-    if [ -n "$fastest_mirror" ]; then
-        log "${green}最快的镜像源: ${fastest_mirror}${plain}"
-        echo "$fastest_mirror"
-    else
-        handle_error "未找到可用的镜像源"
-    fi
-}
-
 # 安装基础组件
 install_base() {
     # 安装前检查
@@ -187,56 +173,75 @@ install_base() {
         esac
     fi
     
-    # 检查并安装必要组件
+    # 检查是否已安装
+    if command -v docker >/dev/null 2>&1 && command -v docker-compose >/dev/null 2>&1; then
+        log "${green}Docker 和 Docker Compose 已安装${plain}"
+        return 0
+    fi
+    
     log "${yellow}开始安装依赖...${plain}"
     
+    # 配置apt国内源
+    cp /etc/apt/sources.list /etc/apt/sources.list.bak
+    cat > /etc/apt/sources.list << EOF
+    deb https://mirrors.aliyun.com/debian/ bullseye main contrib non-free
+    deb https://mirrors.aliyun.com/debian/ bullseye-updates main contrib non-free
+    deb https://mirrors.aliyun.com/debian/ bullseye-backports main contrib non-free
+    deb https://mirrors.aliyun.com/debian-security bullseye-security main contrib non-free
+EOF
+
     # 更新系统包并安装依赖
     apt update || handle_error "更新包列表失败"
-    apt install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release bc || handle_error "安装基础依赖失败"
-    
-    # 检查 Docker 安装
-    if ! command -v docker >/dev/null 2>&1; then
-        log "${yellow}安装 Docker...${plain}"
-        curl -fsSL https://get.docker.com | bash -s docker || handle_error "Docker 安装失败"
-    else
-        log "${green}Docker 已安装${plain}"
-    fi
-    
-    # 检查 Docker Compose 安装
-    if ! command -v docker-compose >/dev/null 2>&1; then
-        log "${yellow}安装 Docker Compose...${plain}"
-        curl -L "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-        chmod +x /usr/local/bin/docker-compose || handle_error "Docker Compose 安装失败"
-    else
-        log "${green}Docker Compose 已安装${plain}"
-    fi
-    
-    # 启动 Docker 服务
-    systemctl start docker
-    systemctl enable docker
-    
+    apt install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release || handle_error "安装基础依赖失败"
+
     # 配置Docker镜像加速
     mkdir -p /etc/docker
     cat > /etc/docker/daemon.json << EOF
 {
     "registry-mirrors": [
+        "https://registry.cn-hangzhou.aliyuncs.com",
         "https://mirror.ccs.tencentyun.com",
-        "https://docker.mirrors.ustc.edu.cn",
-        "https://hub-mirror.c.163.com"
+        "https://docker.mirrors.ustc.edu.cn"
     ],
-    "log-driver": "json-file",
-    "log-opts": {
-        "max-size": "100m",
-        "max-file": "3"
-    }
+    "max-concurrent-downloads": 10,
+    "max-concurrent-uploads": 5,
+    "experimental": true
 }
 EOF
-    
-    # 重启Docker服务
+
+    # 安装Docker
+    log "${yellow}安装Docker...${plain}"
+    if ! curl -fsSL https://get.docker.com | sh; then
+        handle_error "Docker安装失败"
+    fi
+
+    # 启动Docker服务
     systemctl daemon-reload
-    systemctl restart docker
-    
-    log "${green}基础组件安装完成${plain}"
+    systemctl restart docker || handle_error "启动Docker服务失败"
+    systemctl enable docker || handle_error "设置Docker开机启动失败"
+
+    # 安装 Docker Compose
+    echo -e "${yellow}安装 Docker Compose...${plain}"
+    curl -L "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+
+    # 验证安装
+    echo -e "${yellow}验证安装...${plain}"
+    if ! command -v docker &> /dev/null; then
+        echo -e "${red}Docker 安装失败${plain}"
+        exit 1
+    fi
+    if ! command -v docker-compose &> /dev/null; then
+        echo -e "${red}Docker Compose 安装失败${plain}"
+        exit 1
+    fi
+
+    docker --version
+    docker-compose --version
+
+    echo -e "${green}依赖安装完成！${plain}"
+    sleep 2
 }
 
 # 添加健康检查函数
@@ -356,191 +361,52 @@ check_network() {
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
     
-    # 检查 Docker 和 Docker Compose 是否已安装
-    if ! command -v docker >/dev/null 2>&1; then
-        log "${red}Docker 未安装，请先选择选项 1 安装依赖${plain}"
-        return 1
-    fi
+    # 配置 Docker 镜像加速
+    mkdir -p /etc/docker
+    cat > /etc/docker/daemon.json << EOF
+    {
+        "registry-mirrors": [
+            "https://registry.cn-hangzhou.aliyuncs.com",
+            "https://mirror.ccs.tencentyun.com",
+            "https://docker.mirrors.ustc.edu.cn"
+        ],
+        "max-concurrent-downloads": 10,
+        "max-concurrent-uploads": 5,
+        "experimental": true
+    }
+    EOF
 
-    if ! command -v docker-compose >/dev/null 2>&1; then
-        log "${red}Docker Compose 未安装，请先选择选项 1 安装依赖${plain}"
-        return 1
-    fi
+    # 重启 Docker 服务
+    systemctl daemon-reload
+    systemctl restart docker
+
+    # 等待 Docker 服务就绪
+    sleep 5
 
     # 检查必要端口
     check_port 3000
     check_port 3306
     check_port 8080
     
-    # 停止并清理现有服务
-    if [ -d "$INSTALL_DIR" ]; then
-        log "${yellow}停止现有服务...${plain}"
-        if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
-            cd $INSTALL_DIR && docker-compose down 2>/dev/null
-        fi
-        cd /
-        log "${yellow}清理旧文件...${plain}"
-        rm -rf $INSTALL_DIR
-    fi
+    # 创建网络
+    docker network create --subnet=172.20.0.0/16 nodeconfig_net || true
 
     # 创建工作目录
     mkdir -p $INSTALL_DIR/src || handle_error "创建工作目录失败"
     cd $INSTALL_DIR || handle_error "进入工作目录失败"
 
-    log "${yellow}创建配置文件...${plain}"
-    
-    # 创建 docker-compose.yml
-    cat > docker-compose.yml << 'END'
-version: "3"
-services:
-  nodeconfig:
-    build: .
-    container_name: nodeconfig
-    ports:
-      - "3000:3000"
-    restart: always
-    environment:
-      - NODE_ENV=production
-      - DB_HOST=mysql
-      - DB_USER=nodeconfig
-      - DB_PASSWORD=nodeconfig123
-      - DB_NAME=nodeconfig_db
-      - SERVER_IP=${SERVER_IP:-localhost}
-    volumes:
-      - ./src:/app/src
-      - node_modules:/app/src/node_modules
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      nodeconfig_net:
-        ipv4_address: 172.20.0.2
-
-  mysql:
-    image: mysql:8.0
-    container_name: nodeconfig-mysql
-    command: --default-authentication-plugin=mysql_native_password
-    restart: always
-    ports:
-      - "3306:3306"
-    environment:
-      - MYSQL_ROOT_PASSWORD=root123
-      - MYSQL_DATABASE=nodeconfig_db
-      - MYSQL_USER=nodeconfig
-      - MYSQL_PASSWORD=nodeconfig123
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "nodeconfig", "-pnodeconfig123"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      nodeconfig_net:
-        ipv4_address: 172.20.0.3
-
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin
-    container_name: nodeconfig-phpmyadmin
-    ports:
-      - "8080:80"
-    environment:
-      - PMA_HOST=mysql
-      - MYSQL_ROOT_PASSWORD=root123
-      - PMA_USER=nodeconfig
-      - PMA_PASSWORD=nodeconfig123
-      - UPLOAD_LIMIT=300M
-      - PMA_ABSOLUTE_URI=http://${SERVER_IP:-localhost}:8080/
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      nodeconfig_net:
-        ipv4_address: 172.20.0.4
-
-volumes:
-  mysql_data:
-  node_modules:
-
-networks:
-  nodeconfig_net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
-END
-
-    # 创建 Dockerfile
-    cat > Dockerfile << 'END'
-FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
-WORKDIR /app/src
-RUN sed -i "s/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g" /etc/apk/repositories \
-    && apk update \
-    && apk add --no-cache curl mysql-client tzdata git
-RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone
-COPY src/package*.json ./
-RUN npm config set registry https://registry.npmmirror.com \
-    && npm install
-COPY src/ .
-EXPOSE 3000
-CMD ["npm", "start"]
-END
-
-    # 创建 package.json
-    cat > src/package.json << 'END'
-{
-  "name": "nodeconfig",
-  "version": "1.0.0",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2"
-  }
-}
-END
-
-    # 创建 server.js
-    cat > src/server.js << 'END'
-const express = require("express");
-const app = express();
-const port = 3000;
-
-app.get("/", (req, res) => {
-  res.send("NodeConfig is running!");
-});
-
-app.get("/health", (req, res) => {
-  res.send("OK");
-});
-
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
-END
-
-    # 检查必要文件
-    if [ ! -f "docker-compose.yml" ]; then
-        handle_error "docker-compose.yml 文件不存在"
-    fi
-
-    if [ ! -f "Dockerfile" ]; then
-        handle_error "Dockerfile 文件不存在"
-    fi
+    # 拉取基础镜像
+    log "${yellow}拉取基础镜像...${plain}"
+    docker pull node:18-slim || handle_error "拉取基础镜像失败"
+    docker pull mysql:8.0 || handle_error "拉取 MySQL 镜像失败"
+    docker pull phpmyadmin/phpmyadmin || handle_error "拉取 phpMyAdmin 镜像失败"
 
     # 启动服务
     log "${yellow}启动服务...${plain}"
-    docker-compose up -d || handle_error "启动服务失败"
-    
+    docker-compose up -d --build --force-recreate || handle_error "启动服务失败"
+
     # 检查服务状态
     check_service_health
-    
-    # 显示服务信息
-    log "${green}服务部署完成！${plain}"
-    log "${yellow}服务状态：${plain}"
-    docker-compose ps
 }
 
 # 添加更新功能
@@ -719,31 +585,19 @@ show_menu() {
                 continue
                 ;;
             3)
-                if [ -d "$INSTALL_DIR" ]; then
-                    cd $INSTALL_DIR && docker-compose up -d
-                else
-                    log "${red}服务未安装，请先选择选项 2 部署服务${plain}"
-                fi
+                cd $INSTALL_DIR && docker-compose up -d
                 echo -e "${green}服务已启动！${plain}"
                 sleep 2
                 continue
                 ;;
             4)
-                if [ -d "$INSTALL_DIR" ]; then
-                    cd $INSTALL_DIR && docker-compose down
-                else
-                    log "${red}服务未安装，无需停止${plain}"
-                fi
+                cd $INSTALL_DIR && docker-compose down
                 echo -e "${green}服务已停止！${plain}"
                 sleep 2
                 continue
                 ;;
             5)
-                if [ -d "$INSTALL_DIR" ]; then
-                    cd $INSTALL_DIR && docker-compose restart
-                else
-                    log "${red}服务未安装，请先选择选项 2 部署服务${plain}"
-                fi
+                cd $INSTALL_DIR && docker-compose restart
                 echo -e "${green}服务已重启！${plain}"
                 sleep 2
                 continue
