@@ -1,4 +1,4 @@
-FROM registry.cn-hangzhou.aliyuncs.com/aliyun-node/alpine:18
+FROM node:18-alpine
 
 # 启用 buildkit 缓存挂载
 # syntax=docker/dockerfile:1.4
