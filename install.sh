@@ -59,15 +59,7 @@ recover_from_error() {
 # 错误处理
 handle_error() {
     log "${red}错误: $1${plain}"
-    read -p "是否尝试恢复? [y/N] " choice
-    case "$choice" in
-        y|Y )
-            recover_from_error
-            ;;
-        * )
-            exit 1
-            ;;
-    esac
+    exit 1
 }
 
 # 清屏函数
@@ -353,20 +345,26 @@ deploy_service() {
         install_base
     fi
 
+    # 初始化数据库
+    log "${yellow}初始化数据库...${plain}"
+    mysql -e "CREATE DATABASE IF NOT EXISTS nodeconfig CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    mysql -e "CREATE USER IF NOT EXISTS 'nodeconfig'@'localhost' IDENTIFIED BY 'nodeconfig123';"
+    mysql -e "GRANT ALL PRIVILEGES ON nodeconfig.* TO 'nodeconfig'@'localhost';"
+    mysql -e "FLUSH PRIVILEGES;"
+    
+    # 导入数据库结构
+    mysql nodeconfig < ${INSTALL_DIR}/src/backend/database/init.sql || handle_error "导入数据库失败"
+
     # 清理旧的容器和网络
     docker-compose down --volumes --remove-orphans 2>/dev/null || true
     docker network prune -f
 
-    # 确保删除所有相关网络
-    for net in $(docker network ls --filter name=nodeconfig --format "{{.Name}}"); do
-        docker network rm $net 2>/dev/null || true
-    done
-
     # 创建新的网络
     docker network create --subnet=172.21.0.0/16 nodeconfig_net 2>/dev/null || true
 
-    # 创建 docker-compose.yml
-    cat > docker-compose.yml << 'EOF'
+    # 创建 docker-compose.yml（保持原有配置）
+    if [ ! -f docker-compose.yml ]; then
+        cat > docker-compose.yml << 'EOF'
 version: '3'
 services:
   nodeconfig:
@@ -388,9 +386,11 @@ networks:
   nodeconfig_net:
     external: true
 EOF
+    fi
 
-    # 创建 Dockerfile
-    cat > Dockerfile << 'EOF'
+    # 创建 Dockerfile（保持原有配置）
+    if [ ! -f Dockerfile ]; then
+        cat > Dockerfile << 'EOF'
 FROM node:18
 
 WORKDIR /app/src
@@ -413,60 +413,121 @@ EXPOSE 3000
 
 CMD ["npm", "start"]
 EOF
+    fi
 
-    # 创建 package.json
-    cat > src/package.json << 'EOF'
-{
-  "name": "nodeconfig",
-  "version": "1.0.0",
-  "description": "Node configuration tool",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.17.1"
-  }
-}
-EOF
-
-    # 创建 server.js
-    cat > src/server.js << 'EOF'
-const express = require('express');
-const app = express();
-const port = 3000;
-
-app.get('/', (req, res) => {
-  res.send('NodeConfig is running!');
-});
-
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
-EOF
-
-    # 安装依赖
-    cd src
-    # 设置多个 npm 镜像源选项
+    # 构建前端
+    log "${yellow}构建前端...${plain}"
+    cd ${INSTALL_DIR}/src/frontend
+    
+    # 设置 npm 镜像
     npm config set registry https://registry.npmmirror.com
+    
+    # 安装依赖
     if ! npm install; then
         log "${yellow}尝试使用备用镜像源...${plain}"
         npm config set registry https://registry.npm.taobao.org
         if ! npm install; then
-            npm config set registry https://mirrors.huaweicloud.com/repository/npm/
-            if ! npm install; then
-                npm config set registry https://registry.npmjs.org/
-                if ! npm install; then
-                    handle_error "安装依赖失败"
-                fi
-            fi
+            handle_error "前端依赖安装失败"
         fi
     fi
-    cd ..
+    
+    # 创建环境变量文件
+    if [ ! -f .env ]; then
+        cat > .env << EOF
+NODE_ENV=production
+VUE_APP_API_BASE_URL=/api
+VUE_APP_API_TIMEOUT=10000
+EOF
+    fi
+    
+    # 构建
+    if ! npm run build; then
+        handle_error "前端构建失败"
+    fi
+    
+    # 优化静态文件
+    if [ -d "dist" ]; then
+        # 压缩 HTML
+        find dist -name "*.html" -exec gzip -k {} \;
+        # 压缩 CSS
+        find dist -name "*.css" -exec gzip -k {} \;
+        # 压缩 JS
+        find dist -name "*.js" -exec gzip -k {} \;
+    fi
 
-    # 构建并启动服务
-    log "${yellow}构建并启动服务...${plain}"
-    docker-compose build --no-cache || handle_error "构建服务失败"
+    # 构建后端
+    log "${yellow}构建后端...${plain}"
+    cd ${INSTALL_DIR}/src/backend
+    
+    # 设置 npm 镜像
+    npm config set registry https://registry.npmmirror.com
+    
+    # 安装依赖
+    if ! npm install; then
+        log "${yellow}尝试使用备用镜像源...${plain}"
+        npm config set registry https://registry.npm.taobao.org
+        if ! npm install; then
+            handle_error "后端依赖安装失败"
+        fi
+    fi
+    
+    # 创建环境变量文件
+    if [ ! -f .env ]; then
+        cat > .env << EOF
+PORT=3000
+NODE_ENV=production
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=nodeconfig
+DB_PASS=nodeconfig123
+DB_NAME=nodeconfig
+JWT_SECRET=$(openssl rand -base64 32)
+JWT_EXPIRES_IN=7d
+LOG_LEVEL=info
+EOF
+    fi
+    
+    # 创建日志目录
+    mkdir -p ${INSTALL_DIR}/logs
+    
+    # 安装 PM2
+    npm install -g pm2
+    
+    # 启动服务
+    pm2 start ecosystem.config.js || handle_error "启动后端服务失败"
+    
+    # 保存 PM2 进程列表
+    pm2 save
+    
+    # 设置开机自启
+    pm2 startup
+
+    # 配置 Nginx
+    log "${yellow}配置 Nginx...${plain}"
+    cat > /etc/nginx/conf.d/nodeconfig.conf << EOF
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        root ${INSTALL_DIR}/src/frontend/dist;
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    location /api {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+    }
+}
+EOF
+    nginx -t && systemctl reload nginx
+
+    # 启动服务
+    log "${yellow}启动服务...${plain}"
+    cd ${INSTALL_DIR}
     docker-compose up -d || handle_error "启动服务失败"
 
     # 等待服务启动
@@ -474,11 +535,46 @@ EOF
     sleep 10
 
     # 检查服务状态
-    if ! curl -s http://localhost:3000 >/dev/null; then
+    if ! curl -s http://localhost:3000/health >/dev/null; then
         handle_error "服务启动失败"
     fi
 
     log "${green}服务已成功启动${plain}"
+
+    # 创建定时备份任务
+    log "${yellow}配置定时备份...${plain}"
+    if [ ! -f "${INSTALL_DIR}/scripts/backup.sh" ]; then
+        mkdir -p ${INSTALL_DIR}/scripts
+        cat > ${INSTALL_DIR}/scripts/backup.sh << 'EOF'
+#!/bin/bash
+BACKUP_DIR="/opt/nodeconfig/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# 创建备份目录
+mkdir -p $BACKUP_DIR
+
+# 备份数据库
+mysqldump -u nodeconfig -pnodeconfig123 nodeconfig > $BACKUP_DIR/db_$DATE.sql
+
+# 压缩备份
+tar -czf $BACKUP_DIR/backup_$DATE.tar.gz $BACKUP_DIR/db_$DATE.sql
+
+# 删除30天前的备份
+find $BACKUP_DIR -name "backup_*.tar.gz" -mtime +30 -delete
+
+# 记录备份
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backup completed: backup_$DATE.tar.gz" >> $BACKUP_DIR/backup.log
+EOF
+        chmod +x ${INSTALL_DIR}/scripts/backup.sh
+    fi
+
+    # 添加定时任务
+    (crontab -l 2>/dev/null | grep -v "nodeconfig/scripts/backup.sh"; echo "0 2 * * * ${INSTALL_DIR}/scripts/backup.sh") | crontab -
+
+    log "${green}部署完成！${plain}"
+    log "${yellow}管理员账号: admin${plain}"
+    log "${yellow}管理员密码: admin123${plain}"
+    log "${yellow}请及时修改管理员密码！${plain}"
 }
 
 # 添加更新功能

@@ -38,6 +38,8 @@ app.use(session({
 
 // 中间件配置
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // 请求日志中间件
 app.use((req, res, next) => {
@@ -47,8 +49,7 @@ app.use((req, res, next) => {
 
 // Admin 路由 - 必须在静态文件服务之前
 app.get('/admin', (req, res) => {
-    console.log('访问 admin 页面');
-    res.sendFile(path.join(__dirname, 'admin.html'));
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // 静态文件服务

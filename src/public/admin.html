@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NodeConfig 管理后台</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/ant-design-vue/3.2.20/antd.min.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+        }
+        .layout {
+            min-height: 100vh;
+        }
+        .header {
+            background: #fff;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 2px 8px #f0f1f2;
+            position: fixed;
+            width: 100%;
+            z-index: 1;
+        }
+        .logo {
+            height: 32px;
+            margin: 16px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #1890ff;
+        }
+        .content {
+            padding: 88px 24px 24px;
+            background: #f0f2f5;
+        }
+        .card {
+            margin-bottom: 24px;
+        }
+        .stats-card {
+            text-align: center;
+        }
+        .stats-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1890ff;
+        }
+        .stats-title {
+            color: rgba(0, 0, 0, 0.45);
+        }
+        .action-bar {
+            margin-bottom: 16px;
+        }
+        .search-bar {
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <a-layout class="layout">
+            <a-layout-header class="header">
+                <div class="logo">NodeConfig 管理后台</div>
+                <a-menu
+                    v-model:selectedKeys="selectedKeys"
+                    mode="horizontal"
+                    :style="{ lineHeight: '64px', flex: 1 }"
+                >
+                    <a-menu-item key="dashboard">仪表盘</a-menu-item>
+                    <a-menu-item key="subscriptions">订阅管理</a-menu-item>
+                    <a-menu-item key="nodes">节点配置</a-menu-item>
+                    <a-menu-item key="settings">系统设置</a-menu-item>
+                </a-menu>
+            </a-layout-header>
+            
+            <a-layout-content class="content">
+                <!-- 仪表盘 -->
+                <div v-if="selectedKeys[0] === 'dashboard'">
+                    <a-row :gutter="[16, 16]">
+                        <a-col :span="6">
+                            <a-card class="stats-card">
+                                <div class="stats-number">{{stats.totalSubscriptions}}</div>
+                                <div class="stats-title">总订阅数</div>
+                            </a-card>
+                        </a-col>
+                        <a-col :span="6">
+                            <a-card class="stats-card">
+                                <div class="stats-number">{{stats.activeUsers}}</div>
+                                <div class="stats-title">活跃用户</div>
+                            </a-card>
+                        </a-col>
+                        <a-col :span="6">
+                            <a-card class="stats-card">
+                                <div class="stats-number">{{stats.totalNodes}}</div>
+                                <div class="stats-title">节点总数</div>
+                            </a-card>
+                        </a-col>
+                        <a-col :span="6">
+                            <a-card class="stats-card">
+                                <div class="stats-number">{{stats.todayVisits}}</div>
+                                <div class="stats-title">今日访问</div>
+                            </a-card>
+                        </a-col>
+                    </a-row>
+                </div>
+
+                <!-- 订阅管理 -->
+                <div v-if="selectedKeys[0] === 'subscriptions'">
+                    <a-card title="订阅管理" class="card">
+                        <template #extra>
+                            <a-button type="primary" @click="showCreateSubscription">
+                                新建订阅
+                            </a-button>
+                        </template>
+                        
+                        <div class="search-bar">
+                            <a-input-search
+                                v-model:value="searchQuery"
+                                placeholder="搜索订阅"
+                                style="width: 200px"
+                                @search="handleSearch"
+                            />
+                            <a-select
+                                v-model:value="filterStatus"
+                                style="width: 120px; margin-left: 16px"
+                                @change="handleSearch"
+                            >
+                                <a-select-option value="">全部状态</a-select-option>
+                                <a-select-option value="active">活跃</a-select-option>
+                                <a-select-option value="inactive">停用</a-select-option>
+                            </a-select>
+                        </div>
+
+                        <a-table
+                            :columns="subscriptionColumns"
+                            :data-source="subscriptions"
+                            :loading="loading"
+                            :pagination="pagination"
+                            @change="handleTableChange"
+                        >
+                            <template #bodyCell="{ column, record }">
+                                <template v-if="column.key === 'action'">
+                                    <a-space>
+                                        <a @click="showEditSubscription(record)">编辑</a>
+                                        <a @click="showSubscriptionDetail(record)">详情</a>
+                                        <a-popconfirm
+                                            title="确定要删除这个订阅吗？"
+                                            @confirm="deleteSubscription(record)"
+                                        >
+                                            <a style="color: #ff4d4f">删除</a>
+                                        </a-popconfirm>
+                                    </a-space>
+                                </template>
+                            </template>
+                        </a-table>
+                    </a-card>
+                </div>
+
+                <!-- 节点配置 -->
+                <div v-if="selectedKeys[0] === 'nodes'">
+                    <a-card title="节点配置" class="card">
+                        <template #extra>
+                            <a-button type="primary" @click="showCreateNode">
+                                添加节点
+                            </a-button>
+                        </template>
+                        <a-form layout="vertical">
+                            <a-form-item label="节点配置">
+                                <a-input.textarea
+                                    v-model:value="nodeConfig"
+                                    :rows="10"
+                                    placeholder="请输入节点配置，每行一个节点"
+                                />
+                            </a-form-item>
+                            <a-form-item>
+                                <a-button type="primary" @click="checkConfig">
+                                    检查配置
+                                </a-button>
+                                <a-button style="margin-left: 8px" @click="generateConfig">
+                                    生成配置
+                                </a-button>
+                            </a-form-item>
+                        </a-form>
+                    </a-card>
+                </div>
+
+                <!-- 系统设置 -->
+                <div v-if="selectedKeys[0] === 'settings'">
+                    <a-card title="系统设置" class="card">
+                        <a-form layout="vertical">
+                            <a-form-item label="系统名称">
+                                <a-input v-model:value="settings.systemName" />
+                            </a-form-item>
+                            <a-form-item label="管理员邮箱">
+                                <a-input v-model:value="settings.adminEmail" />
+                            </a-form-item>
+                            <a-form-item>
+                                <a-button type="primary" @click="saveSettings">
+                                    保存设置
+                                </a-button>
+                            </a-form-item>
+                        </a-form>
+                    </a-card>
+                </div>
+            </a-layout-content>
+        </a-layout>
+
+        <!-- 创建订阅对话框 -->
+        <a-modal
+            v-model:visible="createSubscriptionVisible"
+            title="新建订阅"
+            @ok="handleCreateSubscription"
+        >
+            <a-form layout="vertical">
+                <a-form-item label="用户名">
+                    <a-input v-model:value="newSubscription.username" />
+                </a-form-item>
+                <a-form-item label="描述">
+                    <a-input v-model:value="newSubscription.description" />
+                </a-form-item>
+                <a-form-item label="节点配置">
+                    <a-input.textarea
+                        v-model:value="newSubscription.nodes"
+                        :rows="4"
+                        placeholder="每行一个节点配置"
+                    />
+                </a-form-item>
+            </a-form>
+        </a-modal>
+    </div>
+
+    <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.2.47/vue.global.prod.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/ant-design-vue/3.2.20/antd.min.js"></script>
+    <script>
+        const { createApp, ref, onMounted, reactive } = Vue;
+        const app = createApp({
+            setup() {
+                const selectedKeys = ref(['dashboard']);
+                const stats = reactive({
+                    totalSubscriptions: 0,
+                    activeUsers: 0,
+                    totalNodes: 0,
+                    todayVisits: 0
+                });
+                const loading = ref(false);
+                const subscriptions = ref([]);
+                const searchQuery = ref('');
+                const filterStatus = ref('');
+                const pagination = reactive({
+                    current: 1,
+                    pageSize: 10,
+                    total: 0
+                });
+                const createSubscriptionVisible = ref(false);
+                const newSubscription = reactive({
+                    username: '',
+                    description: '',
+                    nodes: ''
+                });
+                const nodeConfig = ref('');
+                const settings = reactive({
+                    systemName: 'NodeConfig',
+                    adminEmail: ''
+                });
+
+                // 表格列定义
+                const subscriptionColumns = [
+                    {
+                        title: '用户名',
+                        dataIndex: 'username',
+                        key: 'username',
+                    },
+                    {
+                        title: '描述',
+                        dataIndex: 'description',
+                        key: 'description',
+                    },
+                    {
+                        title: '状态',
+                        dataIndex: 'status',
+                        key: 'status',
+                    },
+                    {
+                        title: '创建时间',
+                        dataIndex: 'created_at',
+                        key: 'created_at',
+                    },
+                    {
+                        title: '操作',
+                        key: 'action',
+                    }
+                ];
+
+                // 获取统计数据
+                const fetchStats = async () => {
+                    try {
+                        const response = await fetch('/api/admin/stats');
+                        const data = await response.json();
+                        Object.assign(stats, data);
+                    } catch (error) {
+                        console.error('获取统计数据失败:', error);
+                        antd.message.error('获取统计数据失败');
+                    }
+                };
+
+                // 获取订阅列表
+                const fetchSubscriptions = async () => {
+                    loading.value = true;
+                    try {
+                        const response = await fetch(`/api/admin/subscriptions?page=${pagination.current}&size=${pagination.pageSize}&search=${searchQuery.value}&status=${filterStatus.value}`);
+                        const data = await response.json();
+                        subscriptions.value = data.subscriptions;
+                        pagination.total = data.total;
+                    } catch (error) {
+                        console.error('获取订阅列表失败:', error);
+                        antd.message.error('获取订阅列表失败');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                // 创建订阅
+                const handleCreateSubscription = async () => {
+                    try {
+                        const response = await fetch('/api/save', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                username: newSubscription.username,
+                                description: newSubscription.description,
+                                nodes: newSubscription.nodes.split('\n').filter(Boolean)
+                            }),
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                            antd.message.success('创建订阅成功');
+                            createSubscriptionVisible.value = false;
+                            fetchSubscriptions();
+                        } else {
+                            antd.message.error(data.message || '创建订阅失败');
+                        }
+                    } catch (error) {
+                        console.error('创建订阅失败:', error);
+                        antd.message.error('创建订阅失败');
+                    }
+                };
+
+                // 检查配置
+                const checkConfig = async () => {
+                    try {
+                        const response = await fetch('/api/check', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                nodes: nodeConfig.value.split('\n').filter(Boolean)
+                            }),
+                        });
+                        const data = await response.json();
+                        if (data.error) {
+                            antd.message.error(data.message);
+                        } else {
+                            antd.message.success('配置格式正确');
+                        }
+                    } catch (error) {
+                        console.error('检查配置失败:', error);
+                        antd.message.error('检查配置失败');
+                    }
+                };
+
+                onMounted(() => {
+                    fetchStats();
+                    fetchSubscriptions();
+                });
+
+                return {
+                    selectedKeys,
+                    stats,
+                    loading,
+                    subscriptions,
+                    subscriptionColumns,
+                    searchQuery,
+                    filterStatus,
+                    pagination,
+                    createSubscriptionVisible,
+                    newSubscription,
+                    nodeConfig,
+                    settings,
+                    handleCreateSubscription,
+                    checkConfig,
+                    fetchSubscriptions,
+                    showCreateSubscription: () => {
+                        createSubscriptionVisible.value = true;
+                    },
+                    handleSearch: () => {
+                        pagination.current = 1;
+                        fetchSubscriptions();
+                    },
+                    handleTableChange: (pag) => {
+                        pagination.current = pag.current;
+                        fetchSubscriptions();
+                    },
+                    showEditSubscription: (record) => {
+                        console.log('编辑订阅:', record);
+                    },
+                    showSubscriptionDetail: (record) => {
+                        console.log('查看详情:', record);
+                    },
+                    deleteSubscription: async (record) => {
+                        try {
+                            const response = await fetch(`/api/admin/subscriptions/${record.id}`, {
+                                method: 'DELETE'
+                            });
+                            const data = await response.json();
+                            if (data.success) {
+                                antd.message.success('删除成功');
+                                fetchSubscriptions();
+                            } else {
+                                antd.message.error(data.message || '删除失败');
+                            }
+                        } catch (error) {
+                            console.error('删除失败:', error);
+                            antd.message.error('删除失败');
+                        }
+                    },
+                    showCreateNode: () => {
+                        console.log('添加节点');
+                    },
+                    generateConfig: () => {
+                        if (!nodeConfig.value) {
+                            antd.message.error('请先输入节点配置');
+                            return;
+                        }
+                        window.location.href = `/api/generate?nodes=${encodeURIComponent(nodeConfig.value)}`;
+                    },
+                    saveSettings: () => {
+                        antd.message.success('设置已保存');
+                    }
+                };
+            }
+        });
+        app.use(antd);
+        app.mount('#app');
+    </script>
+</body>
+</html> 
