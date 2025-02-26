@@ -193,11 +193,11 @@ class SubscriptionController {
             // 生成配置
             const config = {
                 port: 7890,
-                socks-port: 7891,
-                allow-lan: true,
+                'socks-port': 7891,
+                'allow-lan': true,
                 mode: "rule",
-                log-level: "info",
-                external-controller: "127.0.0.1:9090",
+                'log-level': "info",
+                'external-controller': "127.0.0.1:9090",
                 proxies: subscription.nodes.map(node => {
                     if (node.type === 'vless') {
                         return parseVlessConfig(node.config);
