@@ -447,8 +447,21 @@ EOF
 
     # 安装依赖
     cd src
+    # 设置多个 npm 镜像源选项
     npm config set registry https://registry.npmmirror.com
-    npm install || handle_error "安装依赖失败"
+    if ! npm install; then
+        log "${yellow}尝试使用备用镜像源...${plain}"
+        npm config set registry https://registry.npm.taobao.org
+        if ! npm install; then
+            npm config set registry https://mirrors.huaweicloud.com/repository/npm/
+            if ! npm install; then
+                npm config set registry https://registry.npmjs.org/
+                if ! npm install; then
+                    handle_error "安装依赖失败"
+                fi
+            fi
+        fi
+    fi
     cd ..
 
     # 构建并启动服务

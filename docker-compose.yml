@@ -1,38 +1,26 @@
 version: '3'
 services:
   nodeconfig:
-    build: .
+    build: 
+      context: .
+      args:
+        - NPM_REGISTRY=https://registry.npmmirror.com
     container_name: nodeconfig
     ports:
       - "3000:3000"
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - DB_HOST=mysql
-      - DB_USER=nodeconfig
-      - DB_PASSWORD=nodeconfig123
-      - DB_NAME=nodeconfig_db
-      - SERVER_IP=${SERVER_IP:-localhost}
       - NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+      - TZ=Asia/Shanghai
     volumes:
       - ./src:/app/src
-      - node_modules:/app/src/node_modules
-    depends_on:
-      - mysql
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     networks:
       nodeconfig_net:
-        ipv4_address: 172.20.0.2
-    deploy:
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
+        ipv4_address: 172.21.0.2
+    dns:
+      - 8.8.8.8
+      - 114.114.114.114
 
   mysql:
     image: mysql:8.0
@@ -81,7 +69,4 @@ volumes:
 
 networks:
   nodeconfig_net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+    external: true
