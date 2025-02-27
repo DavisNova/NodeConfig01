@@ -160,29 +160,75 @@
 
                 <!-- 节点配置 -->
                 <div v-if="selectedKeys[0] === 'nodes'">
-                    <a-card title="节点配置" class="card">
+                    <a-card title="节点管理" class="card">
                         <template #extra>
                             <a-button type="primary" @click="showCreateNode">
                                 添加节点
                             </a-button>
                         </template>
-                        <a-form layout="vertical">
-                            <a-form-item label="节点配置">
-                                <a-input.textarea
-                                    v-model:value="nodeConfig"
-                                    :rows="10"
-                                    placeholder="请输入节点配置，每行一个节点"
-                                />
-                            </a-form-item>
-                            <a-form-item>
-                                <a-button type="primary" @click="checkConfig">
-                                    检查配置
-                                </a-button>
-                                <a-button style="margin-left: 8px" @click="generateConfig">
-                                    生成配置
-                                </a-button>
-                            </a-form-item>
-                        </a-form>
+                        
+                        <div class="search-bar">
+                            <a-input-search
+                                v-model:value="nodeSearchQuery"
+                                placeholder="搜索节点"
+                                style="width: 200px"
+                                @search="handleNodeSearch"
+                            />
+                            <a-select
+                                v-model:value="nodeFilterCountry"
+                                style="width: 120px; margin-left: 16px"
+                                placeholder="选择国家"
+                                @change="handleNodeSearch"
+                            >
+                                <a-select-option value="">全部国家</a-select-option>
+                                <a-select-option v-for="country in countries" :key="country" :value="country">
+                                    {{country}}
+                                </a-select-option>
+                            </a-select>
+                            <a-select
+                                v-model:value="nodeFilterType"
+                                style="width: 120px; margin-left: 16px"
+                                placeholder="节点类型"
+                                @change="handleNodeSearch"
+                            >
+                                <a-select-option value="">全部类型</a-select-option>
+                                <a-select-option value="vless">VLESS</a-select-option>
+                                <a-select-option value="socks5">SOCKS5</a-select-option>
+                            </a-select>
+                        </div>
+
+                        <a-table
+                            :columns="nodeColumns"
+                            :data-source="nodes"
+                            :loading="nodeLoading"
+                            :pagination="nodePagination"
+                            @change="handleNodeTableChange"
+                        >
+                            <template #bodyCell="{ column, record }">
+                                <template v-if="column.key === 'action'">
+                                    <a-space>
+                                        <a @click="showEditNode(record)">编辑</a>
+                                        <a @click="showNodeDetail(record)">详情</a>
+                                        <a-popconfirm
+                                            title="确定要删除这个节点吗？"
+                                            @confirm="deleteNode(record)"
+                                        >
+                                            <a style="color: #ff4d4f">删除</a>
+                                        </a-popconfirm>
+                                    </a-space>
+                                </template>
+                                <template v-if="column.key === 'status'">
+                                    <a-tag :color="record.status === 'active' ? 'green' : 'red'">
+                                        {{record.status === 'active' ? '正常' : '停用'}}
+                                    </a-tag>
+                                </template>
+                                <template v-if="column.key === 'expire_date'">
+                                    <a-tag :color="isExpired(record.expire_date) ? 'red' : 'green'">
+                                        {{record.expire_date || '永久'}}
+                                    </a-tag>
+                                </template>
+                            </template>
+                        </a-table>
                     </a-card>
                 </div>
 
@@ -229,6 +275,66 @@
                 </a-form-item>
             </a-form>
         </a-modal>
+
+        <!-- 节点编辑对话框 -->
+        <a-modal
+            v-model:visible="nodeModalVisible"
+            :title="editingNode.id ? '编辑节点' : '添加节点'"
+            @ok="handleSaveNode"
+            width="800px"
+        >
+            <a-form :model="editingNode" layout="vertical">
+                <a-row :gutter="16">
+                    <a-col :span="12">
+                        <a-form-item label="节点名称" required>
+                            <a-input v-model:value="editingNode.name" />
+                        </a-form-item>
+                    </a-col>
+                    <a-col :span="12">
+                        <a-form-item label="节点类型" required>
+                            <a-select v-model:value="editingNode.type">
+                                <a-select-option value="vless">VLESS</a-select-option>
+                                <a-select-option value="socks5">SOCKS5</a-select-option>
+                            </a-select>
+                        </a-form-item>
+                    </a-col>
+                </a-row>
+                <a-row :gutter="16">
+                    <a-col :span="12">
+                        <a-form-item label="国家" required>
+                            <a-select v-model:value="editingNode.country" show-search>
+                                <a-select-option v-for="country in countries" :key="country" :value="country">
+                                    {{country}}
+                                </a-select-option>
+                            </a-select>
+                        </a-form-item>
+                    </a-col>
+                    <a-col :span="12">
+                        <a-form-item label="城市">
+                            <a-input v-model:value="editingNode.city" />
+                        </a-form-item>
+                    </a-col>
+                </a-row>
+                <a-row :gutter="16">
+                    <a-col :span="12">
+                        <a-form-item label="购买日期">
+                            <a-date-picker v-model:value="editingNode.purchase_date" style="width: 100%" />
+                        </a-form-item>
+                    </a-col>
+                    <a-col :span="12">
+                        <a-form-item label="到期日期">
+                            <a-date-picker v-model:value="editingNode.expire_date" style="width: 100%" />
+                        </a-form-item>
+                    </a-col>
+                </a-row>
+                <a-form-item label="节点配置" required>
+                    <a-input.textarea v-model:value="editingNode.config" :rows="4" />
+                </a-form-item>
+                <a-form-item label="备注">
+                    <a-input.textarea v-model:value="editingNode.remark" :rows="2" />
+                </a-form-item>
+            </a-form>
+        </a-modal>
     </div>
 
     <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.2.47/vue.global.prod.min.js"></script>
@@ -264,6 +370,28 @@
                     systemName: 'NodeConfig',
                     adminEmail: ''
                 });
+                const nodeSearchQuery = ref('');
+                const nodeFilterCountry = ref('');
+                const nodeFilterType = ref('');
+                const nodeLoading = ref(false);
+                const nodes = ref([]);
+                const nodePagination = reactive({
+                    current: 1,
+                    pageSize: 10,
+                    total: 0
+                });
+                const editingNode = reactive({
+                    id: '',
+                    name: '',
+                    type: '',
+                    country: '',
+                    city: '',
+                    purchase_date: '',
+                    expire_date: '',
+                    config: '',
+                    remark: ''
+                });
+                const nodeModalVisible = ref(false);
 
                 // 表格列定义
                 const subscriptionColumns = [
@@ -291,6 +419,22 @@
                         title: '操作',
                         key: 'action',
                     }
+                ];
+
+                const nodeColumns = [
+                    { title: '节点名称', dataIndex: 'name', key: 'name' },
+                    { title: '类型', dataIndex: 'type', key: 'type' },
+                    { title: '国家', dataIndex: 'country', key: 'country' },
+                    { title: '城市', dataIndex: 'city', key: 'city' },
+                    { title: '状态', dataIndex: 'status', key: 'status' },
+                    { title: '到期日期', dataIndex: 'expire_date', key: 'expire_date' },
+                    { title: '操作', key: 'action' }
+                ];
+
+                // 国家列表
+                const countries = [
+                    '中国', '香港', '台湾', '日本', '韩国', '新加坡', 
+                    '美国', '加拿大', '英国', '德国', '法国', '俄罗斯'
                 ];
 
                 // 获取统计数据
@@ -373,9 +517,143 @@
                     }
                 };
 
+                // 加载节点列表
+                const loadNodes = async () => {
+                    try {
+                        nodeLoading.value = true;
+                        const response = await fetch('/api/admin/nodes?' + new URLSearchParams({
+                            page: nodePagination.current,
+                            size: nodePagination.pageSize,
+                            search: nodeSearchQuery.value,
+                            country: nodeFilterCountry.value,
+                            type: nodeFilterType.value
+                        }));
+                        const data = await response.json();
+                        nodes.value = data.nodes;
+                        nodePagination.total = data.total;
+                    } catch (error) {
+                        console.error('加载节点失败:', error);
+                        antd.message.error('加载节点失败');
+                    } finally {
+                        nodeLoading.value = false;
+                    }
+                };
+
+                // 处理节点搜索
+                const handleNodeSearch = () => {
+                    nodePagination.current = 1;
+                    loadNodes();
+                };
+
+                // 处理节点表格变化
+                const handleNodeTableChange = (pagination) => {
+                    nodePagination.current = pagination.current;
+                    nodePagination.pageSize = pagination.pageSize;
+                    loadNodes();
+                };
+
+                // 显示添加节点对话框
+                const showCreateNode = () => {
+                    Object.assign(editingNode, {
+                        id: '',
+                        name: '',
+                        type: 'vless',
+                        country: '',
+                        city: '',
+                        purchase_date: '',
+                        expire_date: '',
+                        config: '',
+                        remark: ''
+                    });
+                    nodeModalVisible.value = true;
+                };
+
+                // 显示编辑节点对话框
+                const showEditNode = async (record) => {
+                    try {
+                        const response = await fetch(`/api/admin/nodes/${record.id}`);
+                        const node = await response.json();
+                        Object.assign(editingNode, {
+                            id: node.id,
+                            name: node.name,
+                            type: node.type,
+                            country: node.country,
+                            city: node.city,
+                            purchase_date: node.purchase_date,
+                            expire_date: node.expire_date,
+                            config: node.config,
+                            remark: node.remark
+                        });
+                        nodeModalVisible.value = true;
+                    } catch (error) {
+                        console.error('加载节点详情失败:', error);
+                        antd.message.error('加载节点详情失败');
+                    }
+                };
+
+                // 保存节点
+                const handleSaveNode = async () => {
+                    try {
+                        if (!editingNode.name || !editingNode.type || !editingNode.country || !editingNode.config) {
+                            antd.message.error('请填写必要信息');
+                            return;
+                        }
+
+                        const url = editingNode.id ? 
+                            `/api/admin/nodes/${editingNode.id}` : 
+                            '/api/admin/nodes';
+                        
+                        const response = await fetch(url, {
+                            method: editingNode.id ? 'PUT' : 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(editingNode)
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('保存失败');
+                        }
+
+                        antd.message.success(editingNode.id ? '节点更新成功' : '节点添加成功');
+                        nodeModalVisible.value = false;
+                        loadNodes();
+                    } catch (error) {
+                        console.error('保存节点失败:', error);
+                        antd.message.error('保存节点失败');
+                    }
+                };
+
+                // 删除节点
+                const deleteNode = async (record) => {
+                    try {
+                        const response = await fetch(`/api/admin/nodes/${record.id}`, {
+                            method: 'DELETE'
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('删除失败');
+                        }
+
+                        antd.message.success('节点删除成功');
+                        loadNodes();
+                    } catch (error) {
+                        console.error('删除节点失败:', error);
+                        antd.message.error('删除节点失败');
+                    }
+                };
+
+                // 检查节点是否过期
+                const isExpired = (date) => {
+                    if (!date) return false;
+                    return new Date(date) < new Date();
+                };
+
+                // 初始化
                 onMounted(() => {
                     fetchStats();
                     fetchSubscriptions();
+                    loadNodes();
                 });
 
                 return {
@@ -391,23 +669,21 @@
                     newSubscription,
                     nodeConfig,
                     settings,
+                    nodeSearchQuery,
+                    nodeFilterCountry,
+                    nodeFilterType,
+                    nodeLoading,
+                    nodes,
+                    nodePagination,
+                    editingNode,
+                    nodeModalVisible,
+                    countries,
+                    nodeColumns,
+                    handleSearch,
+                    handleTableChange,
+                    showCreateSubscription,
                     handleCreateSubscription,
-                    checkConfig,
-                    fetchSubscriptions,
-                    showCreateSubscription: () => {
-                        createSubscriptionVisible.value = true;
-                    },
-                    handleSearch: () => {
-                        pagination.current = 1;
-                        fetchSubscriptions();
-                    },
-                    handleTableChange: (pag) => {
-                        pagination.current = pag.current;
-                        fetchSubscriptions();
-                    },
-                    showEditSubscription: (record) => {
-                        console.log('编辑订阅:', record);
-                    },
+                    showEditSubscription,
                     showSubscriptionDetail: (record) => {
                         console.log('查看详情:', record);
                     },
@@ -428,19 +704,16 @@
                             antd.message.error('删除失败');
                         }
                     },
-                    showCreateNode: () => {
-                        console.log('添加节点');
-                    },
-                    generateConfig: () => {
-                        if (!nodeConfig.value) {
-                            antd.message.error('请先输入节点配置');
-                            return;
-                        }
-                        window.location.href = `/api/generate?nodes=${encodeURIComponent(nodeConfig.value)}`;
-                    },
                     saveSettings: () => {
                         antd.message.success('设置已保存');
-                    }
+                    },
+                    handleNodeSearch,
+                    handleNodeTableChange,
+                    showCreateNode,
+                    showEditNode,
+                    handleSaveNode,
+                    deleteNode,
+                    isExpired
                 };
             }
         });

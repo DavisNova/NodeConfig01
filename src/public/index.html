@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NodeConfig - 我的订阅</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/ant-design-vue/3.2.20/antd.min.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+        }
+        .layout {
+            min-height: 100vh;
+        }
+        .header {
+            background: #fff;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 2px 8px #f0f1f2;
+            position: fixed;
+            width: 100%;
+            z-index: 1;
+        }
+        .logo {
+            height: 32px;
+            margin: 16px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #1890ff;
+        }
+        .content {
+            padding: 88px 24px 24px;
+            background: #f0f2f5;
+        }
+        .card {
+            margin-bottom: 24px;
+        }
+        .subscription-card {
+            margin-bottom: 16px;
+        }
+        .subscription-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        .subscription-info {
+            color: rgba(0, 0, 0, 0.45);
+            margin-bottom: 16px;
+        }
+        .qrcode-wrapper {
+            text-align: center;
+            margin: 16px 0;
+        }
+        .login-form {
+            max-width: 300px;
+            margin: 100px auto;
+            padding: 24px;
+            background: #fff;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 登录表单 -->
+        <div v-if="!isLoggedIn" class="login-form">
+            <h2 style="text-align: center; margin-bottom: 24px;">用户登录</h2>
+            <a-form layout="vertical">
+                <a-form-item label="用户名">
+                    <a-input v-model:value="loginForm.username" />
+                </a-form-item>
+                <a-form-item label="密码">
+                    <a-input-password v-model:value="loginForm.password" />
+                </a-form-item>
+                <a-form-item>
+                    <a-button type="primary" block @click="handleLogin">
+                        登录
+                    </a-button>
+                </a-form-item>
+            </a-form>
+        </div>
+
+        <!-- 主界面 -->
+        <template v-else>
+            <a-layout class="layout">
+                <a-layout-header class="header">
+                    <div class="logo">NodeConfig</div>
+                    <a-menu
+                        v-model:selectedKeys="selectedKeys"
+                        mode="horizontal"
+                        :style="{ lineHeight: '64px', flex: 1 }"
+                    >
+                        <a-menu-item key="subscriptions">我的订阅</a-menu-item>
+                        <a-menu-item key="profile">个人信息</a-menu-item>
+                    </a-menu>
+                    <a-dropdown>
+                        <a class="ant-dropdown-link" @click.prevent>
+                            {{ userInfo.username }}
+                            <down-outlined />
+                        </a>
+                        <template #overlay>
+                            <a-menu>
+                                <a-menu-item key="logout" @click="handleLogout">
+                                    退出登录
+                                </a-menu-item>
+                            </a-menu>
+                        </template>
+                    </a-dropdown>
+                </a-layout-header>
+
+                <a-layout-content class="content">
+                    <!-- 订阅列表 -->
+                    <div v-if="selectedKeys[0] === 'subscriptions'">
+                        <a-row :gutter="[16, 16]">
+                            <a-col :span="24" v-for="subscription in subscriptions" :key="subscription.id">
+                                <a-card class="subscription-card">
+                                    <template #extra>
+                                        <a-space>
+                                            <a-button type="primary" size="small" @click="copySubscriptionUrl(subscription)">
+                                                复制订阅链接
+                                            </a-button>
+                                            <a-button size="small" @click="downloadConfig(subscription)">
+                                                下载配置
+                                            </a-button>
+                                        </a-space>
+                                    </template>
+                                    <div class="subscription-title">{{ subscription.name }}</div>
+                                    <div class="subscription-info">
+                                        <p>节点数量: {{ subscription.node_count }}</p>
+                                        <p>创建时间: {{ formatDate(subscription.created_at) }}</p>
+                                        <p>到期时间: {{ formatDate(subscription.expire_date) }}</p>
+                                        <p>已用流量: {{ formatTraffic(subscription.bandwidth_used) }}</p>
+                                        <p>总流量: {{ formatTraffic(subscription.bandwidth_limit) }}</p>
+                                    </div>
+                                    <div class="qrcode-wrapper">
+                                        <img :src="subscription.qrcode_url" alt="订阅二维码" style="max-width: 200px;">
+                                    </div>
+                                </a-card>
+                            </a-col>
+                        </a-row>
+                    </div>
+
+                    <!-- 个人信息 -->
+                    <div v-if="selectedKeys[0] === 'profile'">
+                        <a-card title="个人信息">
+                            <a-descriptions :column="1">
+                                <a-descriptions-item label="用户名">
+                                    {{ userInfo.username }}
+                                </a-descriptions-item>
+                                <a-descriptions-item label="邮箱">
+                                    {{ userInfo.email }}
+                                </a-descriptions-item>
+                                <a-descriptions-item label="注册时间">
+                                    {{ formatDate(userInfo.created_at) }}
+                                </a-descriptions-item>
+                                <a-descriptions-item label="最后登录">
+                                    {{ formatDate(userInfo.last_login) }}
+                                </a-descriptions-item>
+                            </a-descriptions>
+                            <template #extra>
+                                <a-button type="primary" @click="showChangePassword">
+                                    修改密码
+                                </a-button>
+                            </template>
+                        </a-card>
+                    </div>
+                </a-layout-content>
+            </a-layout>
+        </template>
+
+        <!-- 修改密码对话框 -->
+        <a-modal
+            v-model:visible="changePasswordVisible"
+            title="修改密码"
+            @ok="handleChangePassword"
+        >
+            <a-form layout="vertical">
+                <a-form-item label="原密码">
+                    <a-input-password v-model:value="passwordForm.oldPassword" />
+                </a-form-item>
+                <a-form-item label="新密码">
+                    <a-input-password v-model:value="passwordForm.newPassword" />
+                </a-form-item>
+                <a-form-item label="确认新密码">
+                    <a-input-password v-model:value="passwordForm.confirmPassword" />
+                </a-form-item>
+            </a-form>
+        </a-modal>
+    </div>
+
+    <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.2.47/vue.global.prod.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/ant-design-vue/3.2.20/antd.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+    <script>
+        const { createApp, ref, onMounted, reactive } = Vue;
+        const app = createApp({
+            setup() {
+                const isLoggedIn = ref(false);
+                const selectedKeys = ref(['subscriptions']);
+                const subscriptions = ref([]);
+                const userInfo = reactive({
+                    username: '',
+                    email: '',
+                    created_at: '',
+                    last_login: ''
+                });
+                const loginForm = reactive({
+                    username: '',
+                    password: ''
+                });
+                const passwordForm = reactive({
+                    oldPassword: '',
+                    newPassword: '',
+                    confirmPassword: ''
+                });
+                const changePasswordVisible = ref(false);
+
+                // 检查登录状态
+                const checkLogin = async () => {
+                    const token = localStorage.getItem('token');
+                    if (token) {
+                        try {
+                            const response = await fetch('/api/user/info', {
+                                headers: {
+                                    'Authorization': `Bearer ${token}`
+                                }
+                            });
+                            if (response.ok) {
+                                const data = await response.json();
+                                Object.assign(userInfo, data);
+                                isLoggedIn.value = true;
+                                loadSubscriptions();
+                            } else {
+                                localStorage.removeItem('token');
+                            }
+                        } catch (error) {
+                            console.error('检查登录状态失败:', error);
+                            localStorage.removeItem('token');
+                        }
+                    }
+                };
+
+                // 加载订阅列表
+                const loadSubscriptions = async () => {
+                    try {
+                        const response = await fetch('/api/user/subscriptions', {
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                            }
+                        });
+                        const data = await response.json();
+                        subscriptions.value = data.subscriptions;
+                    } catch (error) {
+                        console.error('加载订阅列表失败:', error);
+                        antd.message.error('加载订阅列表失败');
+                    }
+                };
+
+                // 处理登录
+                const handleLogin = async () => {
+                    try {
+                        if (!loginForm.username || !loginForm.password) {
+                            antd.message.error('请输入用户名和密码');
+                            return;
+                        }
+
+                        const response = await fetch('/api/login', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(loginForm)
+                        });
+
+                        const data = await response.json();
+                        if (response.ok) {
+                            localStorage.setItem('token', data.token);
+                            Object.assign(userInfo, data.user);
+                            isLoggedIn.value = true;
+                            loadSubscriptions();
+                            antd.message.success('登录成功');
+                        } else {
+                            antd.message.error(data.message || '登录失败');
+                        }
+                    } catch (error) {
+                        console.error('登录失败:', error);
+                        antd.message.error('登录失败');
+                    }
+                };
+
+                // 处理退出登录
+                const handleLogout = () => {
+                    localStorage.removeItem('token');
+                    isLoggedIn.value = false;
+                    subscriptions.value = [];
+                    Object.assign(userInfo, {
+                        username: '',
+                        email: '',
+                        created_at: '',
+                        last_login: ''
+                    });
+                    antd.message.success('已退出登录');
+                };
+
+                // 复制订阅链接
+                const copySubscriptionUrl = (subscription) => {
+                    navigator.clipboard.writeText(subscription.subscription_url)
+                        .then(() => {
+                            antd.message.success('订阅链接已复制');
+                        })
+                        .catch(() => {
+                            antd.message.error('复制失败');
+                        });
+                };
+
+                // 下载配置
+                const downloadConfig = (subscription) => {
+                    window.location.href = subscription.subscription_url;
+                };
+
+                // 显示修改密码对话框
+                const showChangePassword = () => {
+                    Object.assign(passwordForm, {
+                        oldPassword: '',
+                        newPassword: '',
+                        confirmPassword: ''
+                    });
+                    changePasswordVisible.value = true;
+                };
+
+                // 处理修改密码
+                const handleChangePassword = async () => {
+                    try {
+                        if (!passwordForm.oldPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+                            antd.message.error('请填写完整信息');
+                            return;
+                        }
+
+                        if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+                            antd.message.error('两次输入的新密码不一致');
+                            return;
+                        }
+
+                        const response = await fetch('/api/user/change-password', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                            },
+                            body: JSON.stringify({
+                                oldPassword: passwordForm.oldPassword,
+                                newPassword: passwordForm.newPassword
+                            })
+                        });
+
+                        if (response.ok) {
+                            antd.message.success('密码修改成功');
+                            changePasswordVisible.value = false;
+                        } else {
+                            const data = await response.json();
+                            antd.message.error(data.message || '密码修改失败');
+                        }
+                    } catch (error) {
+                        console.error('修改密码失败:', error);
+                        antd.message.error('修改密码失败');
+                    }
+                };
+
+                // 格式化日期
+                const formatDate = (date) => {
+                    return date ? moment(date).format('YYYY-MM-DD HH:mm:ss') : '-';
+                };
+
+                // 格式化流量
+                const formatTraffic = (bytes) => {
+                    if (!bytes) return '0 B';
+                    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    let value = bytes;
+                    let unitIndex = 0;
+                    while (value >= 1024 && unitIndex < units.length - 1) {
+                        value /= 1024;
+                        unitIndex++;
+                    }
+                    return `${value.toFixed(2)} ${units[unitIndex]}`;
+                };
+
+                // 初始化
+                onMounted(() => {
+                    checkLogin();
+                });
+
+                return {
+                    isLoggedIn,
+                    selectedKeys,
+                    subscriptions,
+                    userInfo,
+                    loginForm,
+                    passwordForm,
+                    changePasswordVisible,
+                    handleLogin,
+                    handleLogout,
+                    copySubscriptionUrl,
+                    downloadConfig,
+                    showChangePassword,
+                    handleChangePassword,
+                    formatDate,
+                    formatTraffic
+                };
+            }
+        });
+
+        app.use(antd);
+        app.mount('#app');
+    </script>
+</body>
+</html> 

@@ -1,568 +1,600 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NodeConfig 管理面板</title>
+    <title>NodeConfig - 管理后台</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
     <style>
-        body {
-            background-color: #f5f5f5;
-        }
-        .sidebar {
-            position: fixed;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            z-index: 100;
-            padding: 48px 0 0;
-            box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
-            background-color: #343a40;
-            width: 240px;
-        }
-        .sidebar-sticky {
-            position: relative;
-            top: 0;
-            height: calc(100vh - 48px);
-            padding-top: .5rem;
-            overflow-x: hidden;
-            overflow-y: auto;
-        }
-        .nav-link {
-            color: #fff;
-            padding: 10px 20px;
-        }
-        .nav-link:hover {
-            color: #fff;
-            background-color: rgba(255,255,255,.1);
-        }
-        .nav-link.active {
-            background-color: #0d6efd;
-        }
-        .main-content {
-            margin-left: 240px;
-            padding: 20px;
-        }
-        .card {
-            margin-bottom: 20px;
-            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-        }
-        .stats-card {
-            background: linear-gradient(45deg, #0d6efd, #0a58ca);
-            color: white;
-        }
-        .table-responsive {
-            background-color: white;
-            border-radius: 0.25rem;
-            padding: 15px;
-        }
-        .action-buttons .btn {
-            margin: 0 2px;
-        }
-        .search-box {
-            margin-bottom: 20px;
-        }
-        .pagination {
-            margin-top: 20px;
-            justify-content: center;
-        }
-        .section {
-            display: none;
-        }
-        .section.active {
-            display: block;
-        }
-        .modal-lg {
-            max-width: 900px;
-        }
-        pre {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 4px;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-        .qr-code {
-            max-width: 200px;
-            margin: 0 auto;
-        }
-        .toast {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1050;
-        }
+        body { background-color: #f5f5f5; }
+        .container { max-width: 1200px; margin-top: 30px; }
+        .card { margin-bottom: 20px; }
+        .nav-pills .nav-link.active { background-color: #0d6efd; }
+        .table th { white-space: nowrap; }
+        .action-buttons { white-space: nowrap; }
+        .form-label { font-weight: 500; }
     </style>
 </head>
 <body>
-    <!-- 侧边导航栏 -->
-    <nav class="sidebar col-md-3 col-lg-2 d-md-block">
-        <div class="sidebar-sticky">
-            <ul class="nav flex-column">
-                <li class="nav-item">
-                    <a class="nav-link active" href="#dashboard" data-section="dashboard">
-                        <i class="bi bi-speedometer2"></i> 仪表盘
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#subscriptions" data-section="subscriptions">
-                        <i class="bi bi-list-ul"></i> 订阅管理
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#nodes" data-section="nodes">
-                        <i class="bi bi-diagram-3"></i> 节点管理
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#users" data-section="users">
-                        <i class="bi bi-people"></i> 用户管理
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#logs" data-section="logs">
-                        <i class="bi bi-journal-text"></i> 操作日志
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="#settings" data-section="settings">
-                        <i class="bi bi-gear"></i> 系统设置
-                    </a>
-                </li>
-            </ul>
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>NodeConfig 管理后台</h2>
+            <div>
+                <span id="adminInfo" class="me-3"></span>
+                <button class="btn btn-outline-danger" onclick="logout()">退出</button>
+            </div>
         </div>
-    </nav>
 
-    <!-- 主要内容区域 -->
-    <main class="main-content">
-        <!-- 仪表盘部分 -->
-        <div id="dashboard" class="section active">
-            <h2 class="mb-4">仪表盘</h2>
-            <div class="row">
-                <div class="col-md-3">
-                    <div class="card stats-card">
-                        <div class="card-body">
-                            <h5 class="card-title">总订阅数</h5>
-                            <h3 class="card-text" id="totalSubscriptions">0</h3>
+        <ul class="nav nav-pills mb-4">
+            <li class="nav-item">
+                <a class="nav-link active" data-bs-toggle="pill" href="#nodes">节点管理</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="pill" href="#subscriptions">订阅管理</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="pill" href="#users">用户管理</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="pill" href="#templates">模板管理</a>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- 节点管理 -->
+            <div class="tab-pane fade show active" id="nodes">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-3">
+                            <h5 class="card-title">节点列表</h5>
+                            <button class="btn btn-primary" onclick="showAddNodeModal()">
+                                <i class="bi bi-plus"></i> 添加节点
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>名称</th>
+                                        <th>类型</th>
+                                        <th>国家</th>
+                                        <th>城市</th>
+                                        <th>状态</th>
+                                        <th>到期时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="nodeList"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="card stats-card">
-                        <div class="card-body">
-                            <h5 class="card-title">活跃用户</h5>
-                            <h3 class="card-text" id="activeUsers">0</h3>
+            </div>
+
+            <!-- 订阅管理 -->
+            <div class="tab-pane fade" id="subscriptions">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-3">
+                            <h5 class="card-title">订阅列表</h5>
+                            <button class="btn btn-primary" onclick="showCreateSubscriptionModal()">
+                                <i class="bi bi-plus"></i> 创建订阅
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>用户名</th>
+                                        <th>订阅名称</th>
+                                        <th>节点数量</th>
+                                        <th>状态</th>
+                                        <th>到期时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subscriptionList"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="card stats-card">
-                        <div class="card-body">
-                            <h5 class="card-title">总节点数</h5>
-                            <h3 class="card-text" id="totalNodes">0</h3>
+            </div>
+
+            <!-- 用户管理 -->
+            <div class="tab-pane fade" id="users">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-3">
+                            <h5 class="card-title">用户列表</h5>
+                            <button class="btn btn-primary" onclick="showAddUserModal()">
+                                <i class="bi bi-plus"></i> 添加用户
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>用户名</th>
+                                        <th>邮箱</th>
+                                        <th>角色</th>
+                                        <th>状态</th>
+                                        <th>最后登录</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="userList"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="card stats-card">
-                        <div class="card-body">
-                            <h5 class="card-title">今日访问</h5>
-                            <h3 class="card-text" id="todayVisits">0</h3>
+            </div>
+
+            <!-- 模板管理 -->
+            <div class="tab-pane fade" id="templates">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-3">
+                            <h5 class="card-title">模板列表</h5>
+                            <button class="btn btn-primary" onclick="showAddTemplateModal()">
+                                <i class="bi bi-plus"></i> 添加模板
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>名称</th>
+                                        <th>类型</th>
+                                        <th>创建时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="templateList"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-                <!-- 订阅管理部分 -->
-        <div id="subscriptions" class="section">
-            <h2 class="mb-4">订阅管理</h2>
-            
-            <!-- 搜索和过滤 -->
-            <div class="card mb-4">
-                <div class="card-body">
-                    <form id="searchForm" onsubmit="return false;">
+    </div>
+
+    <!-- 添加节点模态框 -->
+    <div class="modal fade" id="nodeModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">添加节点</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="nodeForm">
+                        <div class="mb-3">
+                            <label class="form-label">节点名称</label>
+                            <input type="text" class="form-control" id="nodeName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">节点类型</label>
+                            <select class="form-select" id="nodeType" required>
+                                <option value="vless">VLESS</option>
+                                <option value="socks5">SOCKS5</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">节点配置</label>
+                            <textarea class="form-control" id="nodeConfig" rows="3" required></textarea>
+                        </div>
                         <div class="row">
-                            <div class="col-md-4">
-                                <input type="text" class="form-control" id="searchSubscription" 
-                                       placeholder="搜索用户名/备注">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">国家</label>
+                                <input type="text" class="form-control" id="nodeCountry" required>
                             </div>
-                            <div class="col-md-2">
-                                <select class="form-select" id="filterStatus">
-                                    <option value="">全部状态</option>
-                                    <option value="active">活跃</option>
-                                    <option value="disabled">停用</option>
-                                </select>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">城市</label>
+                                <input type="text" class="form-control" id="nodeCity">
                             </div>
-                            <div class="col-md-2">
-                                <button type="button" class="btn btn-primary" onclick="searchSubscriptions()">
-                                    <i class="bi bi-search"></i> 搜索
-                                </button>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">购买时间</label>
+                                <input type="date" class="form-control" id="nodePurchaseDate">
                             </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">到期时间</label>
+                                <input type="date" class="form-control" id="nodeExpireDate">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">备注</label>
+                            <textarea class="form-control" id="nodeRemark" rows="2"></textarea>
                         </div>
                     </form>
                 </div>
-            </div>
-
-            <!-- 订阅列表 -->
-            <div class="card">
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>用户名</th>
-                                    <th>备注</th>
-                                    <th>订阅链接</th>
-                                    <th>创建时间</th>
-                                    <th>最后修改</th>
-                                    <th>状态</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="subscriptionsList">
-                                <!-- 动态加载数据 -->
-                            </tbody>
-                        </table>
-                    </div>
-                    <!-- 分页 -->
-                    <nav aria-label="订阅列表分页">
-                        <ul class="pagination justify-content-center" id="subscriptionPagination">
-                            <!-- 动态加载分页 -->
-                        </ul>
-                    </nav>
-                </div>
-            </div>
-
-            <!-- 订阅详情模态框 -->
-            <div class="modal fade" id="subscriptionModal" tabindex="-1">
-                <div class="modal-dialog modal-lg">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">订阅详情</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <h6>订阅信息</h6>
-                                    <div id="subscriptionInfo" class="mb-3">
-                                        <!-- 动态加载订阅信息 -->
-                                    </div>
-                                    <h6>订阅二维码</h6>
-                                    <div id="subscriptionQR" class="text-center mb-3">
-                                        <!-- 动态加载二维码 -->
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <h6>YAML 配置</h6>
-                                    <pre id="yamlConfig" class="bg-light p-3">
-                                        <!-- 动态加载 YAML 配置 -->
-                                    </pre>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                            <button type="button" class="btn btn-primary" onclick="copySubscriptionUrl()">复制订阅链接</button>
-                        </div>
-                    </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="saveNode()">保存</button>
                 </div>
             </div>
         </div>
-            <!-- 引入必要的 JS 库 -->
+    </div>
+
+    <!-- 创建订阅模态框 -->
+    <div class="modal fade" id="subscriptionModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">创建订阅</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="subscriptionForm">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">用户</label>
+                                <select class="form-select" id="subscriptionUser" required></select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">订阅名称</label>
+                                <input type="text" class="form-control" id="subscriptionName" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">选择节点</label>
+                            <div id="nodeSelection" class="border p-3 rounded" style="max-height: 200px; overflow-y: auto;">
+                                <!-- 节点选择列表将通过 JavaScript 动态生成 -->
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">到期时间</label>
+                                <input type="date" class="form-control" id="subscriptionExpireDate">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">流量限制(GB)</label>
+                                <input type="number" class="form-control" id="subscriptionBandwidth">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">备注</label>
+                            <textarea class="form-control" id="subscriptionRemark" rows="2"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="saveSubscription()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // 全局变量
-        let currentPage = 1;
-        const pageSize = 10;
-        let subscriptionModal = null;
+        let currentUser = null;
+        let token = localStorage.getItem('token');
 
-        // 页面加载完成后执行
-        document.addEventListener('DOMContentLoaded', () => {
-            // 初始化 Bootstrap 模态框
-            subscriptionModal = new bootstrap.Modal(document.getElementById('subscriptionModal'));
-            
-            // 加载初始数据
-            loadStats();
-            loadSubscriptions(1);
-            
-            // 设置定时刷新
-            setInterval(loadStats, 30000);
-
-            // 导航切换处理
-            document.querySelectorAll('.nav-link').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const targetSection = e.target.closest('.nav-link').getAttribute('data-section');
-                    switchSection(targetSection);
-                });
-            });
-
-            // 搜索框回车事件
-            document.getElementById('searchSubscription').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    searchSubscriptions();
-                }
-            });
-
-            // 状态筛选变化事件
-            document.getElementById('filterStatus').addEventListener('change', () => {
-                searchSubscriptions();
-            });
-        });
-
-        // 切换页面部分
-        function switchSection(sectionId) {
-            document.querySelectorAll('.nav-link').forEach(link => {
-                link.classList.remove('active');
-                if (link.getAttribute('data-section') === sectionId) {
-                    link.classList.add('active');
-                }
-            });
-
-            document.querySelectorAll('.section').forEach(section => {
-                section.classList.remove('active');
-            });
-            document.getElementById(sectionId).classList.add('active');
-
-            if (sectionId === 'subscriptions') {
-                loadSubscriptions(1);
-            }
-        }
-
-        // 加载统计数据
-        async function loadStats() {
-            try {
-                const response = await fetch('/api/admin/stats');
-                if (!response.ok) throw new Error('获取统计数据失败');
-                const data = await response.json();
-                
-                document.getElementById('totalSubscriptions').textContent = data.totalSubscriptions;
-                document.getElementById('activeUsers').textContent = data.activeUsers;
-                document.getElementById('totalNodes').textContent = data.totalNodes;
-                document.getElementById('todayVisits').textContent = data.todayVisits;
-            } catch (error) {
-                console.error('Error loading stats:', error);
-                showToast('error', '加载统计数据失败');
-            }
-        }
-                // 加载订阅列表
-        async function loadSubscriptions(page) {
-            try {
-                currentPage = page;
-                const searchTerm = document.getElementById('searchSubscription').value;
-                const status = document.getElementById('filterStatus').value;
-                
-                const queryParams = new URLSearchParams({
-                    page: page,
-                    size: pageSize,
-                    search: searchTerm,
-                    status: status
-                });
-                
-                const response = await fetch(`/api/admin/subscriptions?${queryParams}`);
-                if (!response.ok) throw new Error('获取订阅列表失败');
-                
-                const data = await response.json();
-                if (!data.subscriptions) {
-                    throw new Error('返回数据格式错误');
-                }
-                
-                renderSubscriptionsList(data.subscriptions);
-                renderPagination(data.total, page);
-            } catch (error) {
-                console.error('Error loading subscriptions:', error);
-                document.getElementById('subscriptionsList').innerHTML = `
-                    <tr><td colspan="7" class="text-center text-danger">加载失败: ${error.message}</td></tr>
-                `;
-            }
-        }
-
-        // 渲染订阅列表
-        function renderSubscriptionsList(subscriptions) {
-            const tbody = document.getElementById('subscriptionsList');
-            
-            if (!subscriptions || subscriptions.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center">暂无数据</td></tr>';
+        // 检查登录状态
+        async function checkAuth() {
+            if (!token) {
+                window.location.href = '/';
                 return;
             }
-            
-            tbody.innerHTML = subscriptions.map(sub => `
-                <tr>
-                    <td>${escapeHtml(sub.username)}</td>
-                    <td>${escapeHtml(sub.description || '-')}</td>
-                    <td>
-                        <div class="text-truncate" style="max-width: 200px;" title="${escapeHtml(sub.subscription_url)}">
-                            <a href="${escapeHtml(sub.subscription_url)}" target="_blank">
-                                ${escapeHtml(sub.subscription_url)}
-                            </a>
-                        </div>
-                    </td>
-                    <td>${formatDate(sub.created_at)}</td>
-                    <td>${formatDate(sub.updated_at)}</td>
-                    <td>
-                        <span class="badge bg-${sub.status === 'active' ? 'success' : 'danger'}">
-                            ${sub.status === 'active' ? '活跃' : '停用'}
-                        </span>
-                    </td>
-                    <td>
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-sm btn-primary" onclick="viewSubscription(${sub.id})" title="查看">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                            <button class="btn btn-sm btn-warning" onclick="editSubscription(${sub.id})" title="编辑">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteSubscription(${sub.id})" title="删除">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `).join('');
-        }
 
-        // 格式化日期
-        function formatDate(dateStr) {
-            if (!dateStr) return '-';
-            const date = new Date(dateStr);
-            return date.toLocaleString('zh-CN', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-        }
+            try {
+                const response = await fetch('/api/admin/check', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
 
-        // HTML 转义
-        function escapeHtml(unsafe) {
-            if (!unsafe) return '';
-            return unsafe
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-                // 渲染分页
-        function renderPagination(total, currentPage) {
-            const totalPages = Math.ceil(total / pageSize);
-            const pagination = document.getElementById('subscriptionPagination');
-            
-            if (totalPages <= 1) {
-                pagination.innerHTML = '';
-                return;
+                if (!response.ok) {
+                    throw new Error('认证失败');
+                }
+
+                const data = await response.json();
+                currentUser = data.user;
+                document.getElementById('adminInfo').textContent = `管理员：${currentUser.username}`;
+                
+                // 加载数据
+                loadNodes();
+                loadSubscriptions();
+                loadUsers();
+                loadTemplates();
+            } catch (error) {
+                console.error('认证错误:', error);
+                window.location.href = '/';
             }
-            
-            let html = '';
-            
-            // 上一页
-            html += `
-                <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-                    <a class="page-link" href="javascript:void(0)" onclick="loadSubscriptions(${currentPage - 1})">
-                        <i class="bi bi-chevron-left"></i>
-                    </a>
-                </li>
-            `;
-            
-            // 页码
-            for (let i = 1; i <= totalPages; i++) {
-                if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
-                    html += `
-                        <li class="page-item ${i === currentPage ? 'active' : ''}">
-                            <a class="page-link" href="javascript:void(0)" onclick="loadSubscriptions(${i})">${i}</a>
-                        </li>
+        }
+
+        // 加载节点列表
+        async function loadNodes() {
+            try {
+                const response = await fetch('/api/admin/nodes', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const data = await response.json();
+                
+                const tbody = document.getElementById('nodeList');
+                tbody.innerHTML = '';
+                
+                data.nodes.forEach(node => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${node.name}</td>
+                        <td>${node.type}</td>
+                        <td>${node.country}</td>
+                        <td>${node.city || '-'}</td>
+                        <td>
+                            <span class="badge bg-${node.status === 'active' ? 'success' : 'danger'}">
+                                ${node.status}
+                            </span>
+                        </td>
+                        <td>${node.expire_date ? new Date(node.expire_date).toLocaleDateString() : '-'}</td>
+                        <td class="action-buttons">
+                            <button class="btn btn-sm btn-primary me-1" onclick="editNode('${node.id}')">
+                                编辑
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteNode('${node.id}')">
+                                删除
+                            </button>
+                        </td>
                     `;
-                } else if (i === currentPage - 3 || i === currentPage + 3) {
-                    html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
-                }
-            }
-            
-            // 下一页
-            html += `
-                <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-                    <a class="page-link" href="javascript:void(0)" onclick="loadSubscriptions(${currentPage + 1})">
-                        <i class="bi bi-chevron-right"></i>
-                    </a>
-                </li>
-            `;
-            
-            pagination.innerHTML = html;
-        }
-
-        // 搜索订阅
-        function searchSubscriptions() {
-            loadSubscriptions(1);
-        }
-
-        // 查看订阅详情
-        async function viewSubscription(id) {
-            try {
-                const response = await fetch(`/api/admin/subscriptions/${id}`);
-                if (!response.ok) throw new Error('获取订阅详情失败');
-                
-                const data = await response.json();
-                
-                // 填充订阅信息
-                document.getElementById('subscriptionInfo').innerHTML = `
-                    <p><strong>用户名：</strong>${escapeHtml(data.username)}</p>
-                    <p><strong>创建时间：</strong>${formatDate(data.created_at)}</p>
-                    <p><strong>状态：</strong>${data.status === 'active' ? '活跃' : '停用'}</p>
-                    <p><strong>备注：</strong>${escapeHtml(data.description || '-')}</p>
-                    <p><strong>订阅链接：</strong><br>${escapeHtml(data.subscription_url)}</p>
-                `;
-                
-                // 显示二维码
-                document.getElementById('subscriptionQR').innerHTML = `
-                    <img src="${escapeHtml(data.qrcode_url)}" class="qr-code" alt="订阅二维码">
-                `;
-                
-                // 显示 YAML 配置
-                document.getElementById('yamlConfig').textContent = data.yaml_config || '暂无配置';
-                
-                // 显示模态框
-                subscriptionModal.show();
-            } catch (error) {
-                console.error('Error loading subscription details:', error);
-                alert('加载订阅详情失败');
-            }
-        }
-
-        // 复制订阅链接
-        function copySubscriptionUrl() {
-            const urlText = document.querySelector('#subscriptionInfo p:nth-last-child(1)').textContent.split('：')[1].trim();
-            navigator.clipboard.writeText(urlText)
-                .then(() => alert('订阅链接已复制到剪贴板'))
-                .catch(err => {
-                    console.error('复制失败:', err);
-                    alert('复制失败，请手动复制');
+                    tbody.appendChild(tr);
                 });
+            } catch (error) {
+                console.error('加载节点列表失败:', error);
+                alert('加载节点列表失败');
+            }
         }
 
-        // 删除订阅
-        async function deleteSubscription(id) {
-            if (!confirm('确定要删除这个订阅吗？此操作不可恢复。')) {
+        // 显示添加节点模态框
+        function showAddNodeModal() {
+            document.getElementById('nodeForm').reset();
+            new bootstrap.Modal(document.getElementById('nodeModal')).show();
+        }
+
+        // 保存节点
+        async function saveNode() {
+            const formData = {
+                name: document.getElementById('nodeName').value,
+                type: document.getElementById('nodeType').value,
+                config: document.getElementById('nodeConfig').value,
+                country: document.getElementById('nodeCountry').value,
+                city: document.getElementById('nodeCity').value,
+                purchase_date: document.getElementById('nodePurchaseDate').value,
+                expire_date: document.getElementById('nodeExpireDate').value,
+                remark: document.getElementById('nodeRemark').value
+            };
+
+            try {
+                const response = await fetch('/api/admin/nodes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    bootstrap.Modal.getInstance(document.getElementById('nodeModal')).hide();
+                    loadNodes();
+                    alert('节点添加成功');
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.message);
+                }
+            } catch (error) {
+                console.error('保存节点失败:', error);
+                alert('保存节点失败: ' + error.message);
+            }
+        }
+
+        // 编辑节点
+        async function editNode(id) {
+            try {
+                const response = await fetch(`/api/admin/nodes/${id}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const node = await response.json();
+
+                document.getElementById('nodeName').value = node.name;
+                document.getElementById('nodeType').value = node.type;
+                document.getElementById('nodeConfig').value = node.config;
+                document.getElementById('nodeCountry').value = node.country;
+                document.getElementById('nodeCity').value = node.city || '';
+                document.getElementById('nodePurchaseDate').value = node.purchase_date ? node.purchase_date.split('T')[0] : '';
+                document.getElementById('nodeExpireDate').value = node.expire_date ? node.expire_date.split('T')[0] : '';
+                document.getElementById('nodeRemark').value = node.remark || '';
+
+                new bootstrap.Modal(document.getElementById('nodeModal')).show();
+            } catch (error) {
+                console.error('加载节点详情失败:', error);
+                alert('加载节点详情失败');
+            }
+        }
+
+        // 删除节点
+        async function deleteNode(id) {
+            if (!confirm('确定要删除这个节点吗？')) {
                 return;
             }
-            
+
             try {
-                const response = await fetch(`/api/admin/subscriptions/${id}`, {
-                    method: 'DELETE'
+                const response = await fetch(`/api/admin/nodes/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
                 });
-                
-                if (!response.ok) throw new Error('删除失败');
-                
-                await loadSubscriptions(currentPage);
-                alert('删除成功');
+
+                if (response.ok) {
+                    loadNodes();
+                    alert('节点删除成功');
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.message);
+                }
             } catch (error) {
-                console.error('Error deleting subscription:', error);
-                alert('删除失败: ' + error.message);
+                console.error('删除节点失败:', error);
+                alert('删除节点失败: ' + error.message);
             }
         }
+
+        // 加载订阅列表
+        async function loadSubscriptions() {
+            try {
+                const response = await fetch('/api/admin/subscriptions', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const data = await response.json();
+                
+                const tbody = document.getElementById('subscriptionList');
+                tbody.innerHTML = '';
+                
+                data.subscriptions.forEach(sub => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${sub.username}</td>
+                        <td>${sub.name}</td>
+                        <td>${sub.node_count}</td>
+                        <td>
+                            <span class="badge bg-${sub.status === 'active' ? 'success' : 'danger'}">
+                                ${sub.status}
+                            </span>
+                        </td>
+                        <td>${sub.expire_at ? new Date(sub.expire_at).toLocaleDateString() : '-'}</td>
+                        <td class="action-buttons">
+                            <button class="btn btn-sm btn-primary me-1" onclick="editSubscription('${sub.id}')">
+                                编辑
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteSubscription('${sub.id}')">
+                                删除
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (error) {
+                console.error('加载订阅列表失败:', error);
+                alert('加载订阅列表失败');
+            }
+        }
+
+        // 显示创建订阅模态框
+        async function showCreateSubscriptionModal() {
+            document.getElementById('subscriptionForm').reset();
+            
+            // 加载用户列表
+            try {
+                const response = await fetch('/api/admin/users', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const data = await response.json();
+                
+                const select = document.getElementById('subscriptionUser');
+                select.innerHTML = '';
+                data.users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = user.username;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('加载用户列表失败:', error);
+                alert('加载用户列表失败');
+                return;
+            }
+
+            // 加载节点列表
+            try {
+                const response = await fetch('/api/admin/nodes', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const data = await response.json();
+                
+                const container = document.getElementById('nodeSelection');
+                container.innerHTML = '';
+                data.nodes.forEach(node => {
+                    const div = document.createElement('div');
+                    div.className = 'form-check';
+                    div.innerHTML = `
+                        <input class="form-check-input" type="checkbox" value="${node.id}" id="node${node.id}">
+                        <label class="form-check-label" for="node${node.id}">
+                            ${node.name} (${node.type} - ${node.country})
+                        </label>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (error) {
+                console.error('加载节点列表失败:', error);
+                alert('加载节点列表失败');
+                return;
+            }
+
+            new bootstrap.Modal(document.getElementById('subscriptionModal')).show();
+        }
+
+        // 保存订阅
+        async function saveSubscription() {
+            const selectedNodes = Array.from(document.querySelectorAll('#nodeSelection input:checked')).map(input => input.value);
+            
+            if (selectedNodes.length === 0) {
+                alert('请至少选择一个节点');
+                return;
+            }
+
+            const formData = {
+                user_id: document.getElementById('subscriptionUser').value,
+                name: document.getElementById('subscriptionName').value,
+                expire_at: document.getElementById('subscriptionExpireDate').value,
+                bandwidth_limit: document.getElementById('subscriptionBandwidth').value * 1024 * 1024 * 1024, // 转换为字节
+                nodes: selectedNodes,
+                remark: document.getElementById('subscriptionRemark').value
+            };
+
+            try {
+                const response = await fetch('/api/admin/subscriptions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    bootstrap.Modal.getInstance(document.getElementById('subscriptionModal')).hide();
+                    loadSubscriptions();
+                    alert('订阅创建成功');
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.message);
+                }
+            } catch (error) {
+                console.error('创建订阅失败:', error);
+                alert('创建订阅失败: ' + error.message);
+            }
+        }
+
+        // 退出登录
+        function logout() {
+            localStorage.removeItem('token');
+            window.location.href = '/';
+        }
+
+        // 页面加载时检查登录状态
+        checkAuth();
     </script>
 </body>
 </html>

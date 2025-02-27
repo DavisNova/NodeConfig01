@@ -112,6 +112,21 @@ CREATE TABLE IF NOT EXISTS backups (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB;
 
+-- 创建错误日志表
+CREATE TABLE IF NOT EXISTS error_logs (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    error_id CHAR(36) NOT NULL,
+    error_message TEXT,
+    error_stack TEXT,
+    request_url VARCHAR(255),
+    request_method VARCHAR(10),
+    request_headers TEXT,
+    request_body TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_error_id (error_id),
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 创建初始管理员账户 (密码: admin123)
 INSERT INTO users (id, username, password, role, status) VALUES 
 (UUID(), 'admin', '$2a$10$3GNlHWHAGNI0L6RD1C/8H.YmRqWC4.wOZhqD5L6HWQTpHiBj0Nwwi', 'admin', 'active')
@@ -147,4 +162,17 @@ SET GLOBAL event_scheduler = ON;
 CREATE EVENT IF NOT EXISTS cleanup_event
 ON SCHEDULE EVERY 1 DAY
 STARTS CURRENT_TIMESTAMP
-DO CALL cleanup_old_data(); 
+DO CALL cleanup_old_data();
+
+-- 创建清理旧错误日志的存储过程
+DELIMITER //
+CREATE PROCEDURE IF NOT EXISTS cleanup_error_logs()
+BEGIN
+    DELETE FROM error_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY);
+END //
+DELIMITER ;
+
+-- 创建定时清理错误日志的事件
+CREATE EVENT IF NOT EXISTS cleanup_error_logs_event
+ON SCHEDULE EVERY 1 DAY
+DO CALL cleanup_error_logs(); 

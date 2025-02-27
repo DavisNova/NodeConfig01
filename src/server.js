@@ -8,6 +8,10 @@ const moment = require('moment');
 const { v4: uuidv4 } = require('uuid');
 const session = require('express-session');
 const MySQLStore = require('connect-mysql')(session);
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const { exec } = require('child_process');
+const schedule = require('node-schedule');
 
 const app = express();
 
@@ -17,31 +21,47 @@ app.use((req, res, next) => {
     next();
 });
 
-// 数据库配置
+// 数据库配置优化
 const dbConfig = {
     host: process.env.DB_HOST || 'mysql',
     user: process.env.DB_USER || 'nodeconfig',
     password: process.env.DB_PASSWORD || 'nodeconfig123',
     database: process.env.DB_NAME || 'nodeconfig_db',
     waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+    connectionLimit: process.env.DB_CONNECTION_LIMIT || 10,
+    queueLimit: process.env.DB_QUEUE_LIMIT || 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
+    multipleStatements: false,
+    timezone: '+00:00',
+    charset: 'utf8mb4',
+    connectTimeout: 10000,
+    acquireTimeout: 10000,
+    timeout: 10000
 };
 
 // 创建数据库连接池
 const pool = mysql.createPool(dbConfig);
 
-// 测试数据库连接
+// 优化数据库连接测试函数
 async function testDatabaseConnection() {
-    try {
-        const conn = await pool.getConnection();
-        console.log('数据库连接成功');
-        conn.release();
-        return true;
-    } catch (error) {
-        console.error('数据库连接失败:', error);
-        return false;
+    let retries = 3;
+    while (retries > 0) {
+        try {
+            const conn = await pool.getConnection();
+            await conn.ping();
+            console.log('数据库连接成功');
+            conn.release();
+            return true;
+        } catch (error) {
+            console.error(`数据库连接失败(剩余重试次数: ${retries - 1}):`, error);
+            retries--;
+            if (retries > 0) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
     }
+    return false;
 }
 
 // 基础中间件配置
@@ -94,6 +114,40 @@ app.get('/', (req, res) => {
 app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'admin.html'));
 });
+
+// JWT 密钥
+const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key';
+
+// 用户认证中间件
+const authMiddleware = async (req, res, next) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
+        if (!token) {
+            return res.status(401).json({ error: true, message: '未登录' });
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const [rows] = await pool.execute('SELECT id, username, role FROM users WHERE id = ?', [decoded.id]);
+        
+        if (rows.length === 0) {
+            return res.status(401).json({ error: true, message: '用户不存在' });
+        }
+
+        req.user = rows[0];
+        next();
+    } catch (error) {
+        console.error('认证错误:', error);
+        res.status(401).json({ error: true, message: '认证失败' });
+    }
+};
+
+// 管理员认证中间件
+const adminMiddleware = (req, res, next) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: true, message: '需要管理员权限' });
+    }
+    next();
+};
 
 // 管理后台 API
 
@@ -677,29 +731,784 @@ app.get('/subscribe/:id', async (req, res) => {
     }
 });
 
-// 错误处理中间件优化
+// 用户登录
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        const [users] = await pool.execute(
+            'SELECT * FROM users WHERE username = ?',
+            [username]
+        );
+
+        if (users.length === 0) {
+            return res.status(401).json({ error: true, message: '用户名或密码错误' });
+        }
+
+        const user = users[0];
+        const validPassword = await bcrypt.compare(password, user.password);
+
+        if (!validPassword) {
+            return res.status(401).json({ error: true, message: '用户名或密码错误' });
+        }
+
+        // 更新最后登录时间和IP
+        await pool.execute(
+            'UPDATE users SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?',
+            [req.ip, user.id]
+        );
+
+        // 生成 JWT token
+        const token = jwt.sign(
+            { id: user.id, username: user.username, role: user.role },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 24 * 60 * 60 * 1000 // 24小时
+        });
+
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                username: user.username,
+                role: user.role
+            },
+            token
+        });
+    } catch (error) {
+        console.error('登录错误:', error);
+        res.status(500).json({ error: true, message: '登录失败' });
+    }
+});
+
+// 获取用户订阅列表
+app.get('/api/user/subscriptions', authMiddleware, async (req, res) => {
+    try {
+        const [subscriptions] = await pool.execute(`
+            SELECT s.*, 
+                   COUNT(DISTINCT sn.node_id) as node_count,
+                   GROUP_CONCAT(DISTINCT n.country) as countries
+            FROM subscriptions s
+            LEFT JOIN subscription_nodes sn ON s.id = sn.subscription_id
+            LEFT JOIN nodes n ON sn.node_id = n.id
+            WHERE s.user_id = ?
+            GROUP BY s.id
+            ORDER BY s.created_at DESC
+        `, [req.user.id]);
+
+        res.json({ subscriptions });
+    } catch (error) {
+        console.error('获取订阅列表错误:', error);
+        res.status(500).json({ error: true, message: '获取订阅列表失败' });
+    }
+});
+
+// 获取节点列表
+app.get('/api/admin/nodes', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            const [nodes] = await conn.execute(`
+                SELECT n.*, 
+                       COUNT(DISTINCT sn.subscription_id) as subscription_count,
+                       GROUP_CONCAT(DISTINCT s.username) as subscribed_users
+                FROM nodes n
+                LEFT JOIN subscription_nodes sn ON n.id = sn.node_id
+                LEFT JOIN subscriptions s ON sn.subscription_id = s.id
+                GROUP BY n.id
+                ORDER BY n.created_at DESC
+            `);
+
+            res.json({ nodes: nodes.map(node => ({
+                ...node,
+                created_at: moment(node.created_at).format('YYYY-MM-DD HH:mm:ss'),
+                updated_at: node.updated_at ? moment(node.updated_at).format('YYYY-MM-DD HH:mm:ss') : null,
+                purchase_date: node.purchase_date ? moment(node.purchase_date).format('YYYY-MM-DD') : null,
+                expire_date: node.expire_date ? moment(node.expire_date).format('YYYY-MM-DD') : null
+            }))});
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('获取节点列表失败:', error);
+        res.status(500).json({ error: true, message: '获取节点列表失败', details: error.message });
+    }
+});
+
+// 获取节点详情
+app.get('/api/admin/nodes/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            const [nodes] = await conn.execute('SELECT * FROM nodes WHERE id = ?', [req.params.id]);
+            
+            if (nodes.length === 0) {
+                return res.status(404).json({ error: true, message: '节点不存在' });
+            }
+
+            const node = nodes[0];
+            node.created_at = moment(node.created_at).format('YYYY-MM-DD HH:mm:ss');
+            node.updated_at = node.updated_at ? moment(node.updated_at).format('YYYY-MM-DD HH:mm:ss') : null;
+            node.purchase_date = node.purchase_date ? moment(node.purchase_date).format('YYYY-MM-DD') : null;
+            node.expire_date = node.expire_date ? moment(node.expire_date).format('YYYY-MM-DD') : null;
+
+            res.json(node);
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('获取节点详情失败:', error);
+        res.status(500).json({ error: true, message: '获取节点详情失败', details: error.message });
+    }
+});
+
+// 创建节点
+app.post('/api/admin/nodes', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const {
+            name,
+            type,
+            config,
+            country,
+            city,
+            purchase_date,
+            expire_date,
+            remark
+        } = req.body;
+
+        if (!name || !type || !config || !country) {
+            return res.status(400).json({ error: true, message: '缺少必要参数' });
+        }
+
+        const conn = await pool.getConnection();
+        try {
+            const [result] = await conn.execute(`
+                INSERT INTO nodes (
+                    name, type, config, country, city, 
+                    purchase_date, expire_date, remark, 
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())
+            `, [
+                name, type, config, country, city || null,
+                purchase_date || null, expire_date || null, remark || null
+            ]);
+
+            res.json({ 
+                success: true, 
+                message: '节点创建成功',
+                node_id: result.insertId 
+            });
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('创建节点失败:', error);
+        res.status(500).json({ error: true, message: '创建节点失败', details: error.message });
+    }
+});
+
+// 更新节点
+app.put('/api/admin/nodes/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const {
+            name,
+            type,
+            config,
+            country,
+            city,
+            purchase_date,
+            expire_date,
+            remark,
+            status
+        } = req.body;
+
+        if (!name || !type || !config || !country) {
+            return res.status(400).json({ error: true, message: '缺少必要参数' });
+        }
+
+        const conn = await pool.getConnection();
+        try {
+            const [result] = await conn.execute(`
+                UPDATE nodes 
+                SET name = ?, type = ?, config = ?, country = ?, 
+                    city = ?, purchase_date = ?, expire_date = ?, 
+                    remark = ?, status = ?, updated_at = NOW()
+                WHERE id = ?
+            `, [
+                name, type, config, country,
+                city || null, purchase_date || null, expire_date || null,
+                remark || null, status || 'active', req.params.id
+            ]);
+
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ error: true, message: '节点不存在' });
+            }
+
+            res.json({ success: true, message: '节点更新成功' });
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('更新节点失败:', error);
+        res.status(500).json({ error: true, message: '更新节点失败', details: error.message });
+    }
+});
+
+// 删除节点
+app.delete('/api/admin/nodes/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            // 开启事务
+            await conn.beginTransaction();
+
+            // 先删除节点与订阅的关联
+            await conn.execute('DELETE FROM subscription_nodes WHERE node_id = ?', [req.params.id]);
+            
+            // 再删除节点
+            const [result] = await conn.execute('DELETE FROM nodes WHERE id = ?', [req.params.id]);
+
+            if (result.affectedRows === 0) {
+                await conn.rollback();
+                return res.status(404).json({ error: true, message: '节点不存在' });
+            }
+
+            // 提交事务
+            await conn.commit();
+            res.json({ success: true, message: '节点删除成功' });
+        } catch (error) {
+            await conn.rollback();
+            throw error;
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('删除节点失败:', error);
+        res.status(500).json({ error: true, message: '删除节点失败', details: error.message });
+    }
+});
+
+// 用户管理 API
+
+// 获取用户列表
+app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            const [users] = await conn.execute(`
+                SELECT u.id, u.username, u.email, u.role, u.status,
+                       u.last_login, u.created_at, u.updated_at,
+                       COUNT(DISTINCT s.id) as subscription_count,
+                       SUM(s.bandwidth_used) as total_bandwidth_used
+                FROM users u
+                LEFT JOIN subscriptions s ON u.id = s.user_id
+                GROUP BY u.id
+                ORDER BY u.created_at DESC
+            `);
+
+            res.json({
+                users: users.map(user => ({
+                    ...user,
+                    last_login: user.last_login ? moment(user.last_login).format('YYYY-MM-DD HH:mm:ss') : null,
+                    created_at: moment(user.created_at).format('YYYY-MM-DD HH:mm:ss'),
+                    updated_at: user.updated_at ? moment(user.updated_at).format('YYYY-MM-DD HH:mm:ss') : null,
+                    total_bandwidth_used: user.total_bandwidth_used ? Math.round(user.total_bandwidth_used / (1024 * 1024 * 1024)) : 0 // 转换为GB
+                }))
+            });
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('获取用户列表失败:', error);
+        res.status(500).json({ error: true, message: '获取用户列表失败', details: error.message });
+    }
+});
+
+// 获取用户详情
+app.get('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            const [users] = await conn.execute(`
+                SELECT u.*, 
+                       COUNT(DISTINCT s.id) as subscription_count,
+                       GROUP_CONCAT(DISTINCT s.id) as subscription_ids
+                FROM users u
+                LEFT JOIN subscriptions s ON u.id = s.user_id
+                WHERE u.id = ?
+                GROUP BY u.id
+            `, [req.params.id]);
+
+            if (users.length === 0) {
+                return res.status(404).json({ error: true, message: '用户不存在' });
+            }
+
+            const user = users[0];
+            delete user.password; // 删除密码字段
+
+            // 格式化日期
+            user.last_login = user.last_login ? moment(user.last_login).format('YYYY-MM-DD HH:mm:ss') : null;
+            user.created_at = moment(user.created_at).format('YYYY-MM-DD HH:mm:ss');
+            user.updated_at = user.updated_at ? moment(user.updated_at).format('YYYY-MM-DD HH:mm:ss') : null;
+
+            res.json(user);
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('获取用户详情失败:', error);
+        res.status(500).json({ error: true, message: '获取用户详情失败', details: error.message });
+    }
+});
+
+// 创建用户
+app.post('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const {
+            username,
+            email,
+            password,
+            role = 'user',
+            status = 'active'
+        } = req.body;
+
+        if (!username || !email || !password) {
+            return res.status(400).json({ error: true, message: '缺少必要参数' });
+        }
+
+        const conn = await pool.getConnection();
+        try {
+            // 检查用户名是否已存在
+            const [existingUsers] = await conn.execute(
+                'SELECT id FROM users WHERE username = ? OR email = ?',
+                [username, email]
+            );
+
+            if (existingUsers.length > 0) {
+                return res.status(400).json({ error: true, message: '用户名或邮箱已存在' });
+            }
+
+            // 加密密码
+            const hashedPassword = await bcrypt.hash(password, 10);
+
+            // 创建用户
+            const [result] = await conn.execute(`
+                INSERT INTO users (
+                    username, email, password, role, status,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+            `, [username, email, hashedPassword, role, status]);
+
+            res.json({
+                success: true,
+                message: '用户创建成功',
+                user_id: result.insertId
+            });
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('创建用户失败:', error);
+        res.status(500).json({ error: true, message: '创建用户失败', details: error.message });
+    }
+});
+
+// 更新用户
+app.put('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const {
+            email,
+            password,
+            role,
+            status
+        } = req.body;
+
+        const conn = await pool.getConnection();
+        try {
+            // 检查用户是否存在
+            const [users] = await conn.execute('SELECT * FROM users WHERE id = ?', [req.params.id]);
+            
+            if (users.length === 0) {
+                return res.status(404).json({ error: true, message: '用户不存在' });
+            }
+
+            // 构建更新语句
+            let updateFields = [];
+            let updateValues = [];
+
+            if (email) {
+                updateFields.push('email = ?');
+                updateValues.push(email);
+            }
+
+            if (password) {
+                const hashedPassword = await bcrypt.hash(password, 10);
+                updateFields.push('password = ?');
+                updateValues.push(hashedPassword);
+            }
+
+            if (role) {
+                updateFields.push('role = ?');
+                updateValues.push(role);
+            }
+
+            if (status) {
+                updateFields.push('status = ?');
+                updateValues.push(status);
+            }
+
+            if (updateFields.length === 0) {
+                return res.status(400).json({ error: true, message: '没有需要更新的字段' });
+            }
+
+            updateFields.push('updated_at = NOW()');
+            updateValues.push(req.params.id);
+
+            const [result] = await conn.execute(`
+                UPDATE users 
+                SET ${updateFields.join(', ')}
+                WHERE id = ?
+            `, updateValues);
+
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ error: true, message: '用户不存在' });
+            }
+
+            res.json({ success: true, message: '用户更新成功' });
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('更新用户失败:', error);
+        res.status(500).json({ error: true, message: '更新用户失败', details: error.message });
+    }
+});
+
+// 删除用户
+app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            // 开启事务
+            await conn.beginTransaction();
+
+            // 检查是否为最后一个管理员
+            const [adminCount] = await conn.execute(
+                'SELECT COUNT(*) as count FROM users WHERE role = "admin"'
+            );
+            const [targetUser] = await conn.execute(
+                'SELECT role FROM users WHERE id = ?',
+                [req.params.id]
+            );
+
+            if (adminCount[0].count === 1 && targetUser[0]?.role === 'admin') {
+                await conn.rollback();
+                return res.status(400).json({ error: true, message: '不能删除最后一个管理员' });
+            }
+
+            // 删除用户的订阅节点关联
+            await conn.execute(`
+                DELETE sn FROM subscription_nodes sn
+                INNER JOIN subscriptions s ON sn.subscription_id = s.id
+                WHERE s.user_id = ?
+            `, [req.params.id]);
+
+            // 删除用户的订阅
+            await conn.execute('DELETE FROM subscriptions WHERE user_id = ?', [req.params.id]);
+
+            // 删除用户
+            const [result] = await conn.execute('DELETE FROM users WHERE id = ?', [req.params.id]);
+
+            if (result.affectedRows === 0) {
+                await conn.rollback();
+                return res.status(404).json({ error: true, message: '用户不存在' });
+            }
+
+            // 提交事务
+            await conn.commit();
+            res.json({ success: true, message: '用户删除成功' });
+        } catch (error) {
+            await conn.rollback();
+            throw error;
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('删除用户失败:', error);
+        res.status(500).json({ error: true, message: '删除用户失败', details: error.message });
+    }
+});
+
+// 模板管理 API
+
+// 获取模板列表
+app.get('/api/admin/templates', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            const [templates] = await conn.execute(`
+                SELECT t.*, 
+                       COUNT(DISTINCT n.id) as node_count
+                FROM node_templates t
+                LEFT JOIN nodes n ON t.id = n.template_id
+                GROUP BY t.id
+                ORDER BY t.created_at DESC
+            `);
+
+            res.json({
+                templates: templates.map(template => ({
+                    ...template,
+                    created_at: moment(template.created_at).format('YYYY-MM-DD HH:mm:ss'),
+                    updated_at: template.updated_at ? moment(template.updated_at).format('YYYY-MM-DD HH:mm:ss') : null
+                }))
+            });
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('获取模板列表失败:', error);
+        res.status(500).json({ error: true, message: '获取模板列表失败', details: error.message });
+    }
+});
+
+// 获取模板详情
+app.get('/api/admin/templates/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            const [templates] = await conn.execute(`
+                SELECT t.*, 
+                       COUNT(DISTINCT n.id) as node_count,
+                       GROUP_CONCAT(DISTINCT n.id) as node_ids
+                FROM node_templates t
+                LEFT JOIN nodes n ON t.id = n.template_id
+                WHERE t.id = ?
+                GROUP BY t.id
+            `, [req.params.id]);
+
+            if (templates.length === 0) {
+                return res.status(404).json({ error: true, message: '模板不存在' });
+            }
+
+            const template = templates[0];
+            template.created_at = moment(template.created_at).format('YYYY-MM-DD HH:mm:ss');
+            template.updated_at = template.updated_at ? moment(template.updated_at).format('YYYY-MM-DD HH:mm:ss') : null;
+
+            res.json(template);
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('获取模板详情失败:', error);
+        res.status(500).json({ error: true, message: '获取模板详情失败', details: error.message });
+    }
+});
+
+// 创建模板
+app.post('/api/admin/templates', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const {
+            name,
+            type,
+            config,
+            description
+        } = req.body;
+
+        if (!name || !type || !config) {
+            return res.status(400).json({ error: true, message: '缺少必要参数' });
+        }
+
+        const conn = await pool.getConnection();
+        try {
+            // 检查模板名称是否已存在
+            const [existingTemplates] = await conn.execute(
+                'SELECT id FROM node_templates WHERE name = ?',
+                [name]
+            );
+
+            if (existingTemplates.length > 0) {
+                return res.status(400).json({ error: true, message: '模板名称已存在' });
+            }
+
+            // 创建模板
+            const [result] = await conn.execute(`
+                INSERT INTO node_templates (
+                    name, type, config, description,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, NOW(), NOW())
+            `, [name, type, config, description || null]);
+
+            res.json({
+                success: true,
+                message: '模板创建成功',
+                template_id: result.insertId
+            });
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('创建模板失败:', error);
+        res.status(500).json({ error: true, message: '创建模板失败', details: error.message });
+    }
+});
+
+// 更新模板
+app.put('/api/admin/templates/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const {
+            name,
+            type,
+            config,
+            description
+        } = req.body;
+
+        if (!name || !type || !config) {
+            return res.status(400).json({ error: true, message: '缺少必要参数' });
+        }
+
+        const conn = await pool.getConnection();
+        try {
+            // 检查模板是否存在
+            const [templates] = await conn.execute(
+                'SELECT id FROM node_templates WHERE id = ?',
+                [req.params.id]
+            );
+
+            if (templates.length === 0) {
+                return res.status(404).json({ error: true, message: '模板不存在' });
+            }
+
+            // 检查名称是否与其他模板重复
+            const [existingTemplates] = await conn.execute(
+                'SELECT id FROM node_templates WHERE name = ? AND id != ?',
+                [name, req.params.id]
+            );
+
+            if (existingTemplates.length > 0) {
+                return res.status(400).json({ error: true, message: '模板名称已存在' });
+            }
+
+            // 更新模板
+            const [result] = await conn.execute(`
+                UPDATE node_templates 
+                SET name = ?, type = ?, config = ?, 
+                    description = ?, updated_at = NOW()
+                WHERE id = ?
+            `, [name, type, config, description || null, req.params.id]);
+
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ error: true, message: '模板不存在' });
+            }
+
+            res.json({ success: true, message: '模板更新成功' });
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('更新模板失败:', error);
+        res.status(500).json({ error: true, message: '更新模板失败', details: error.message });
+    }
+});
+
+// 删除模板
+app.delete('/api/admin/templates/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const conn = await pool.getConnection();
+        try {
+            // 开启事务
+            await conn.beginTransaction();
+
+            // 检查模板是否被节点使用
+            const [nodes] = await conn.execute(
+                'SELECT COUNT(*) as count FROM nodes WHERE template_id = ?',
+                [req.params.id]
+            );
+
+            if (nodes[0].count > 0) {
+                await conn.rollback();
+                return res.status(400).json({ 
+                    error: true, 
+                    message: '模板正在被节点使用,无法删除',
+                    node_count: nodes[0].count
+                });
+            }
+
+            // 删除模板
+            const [result] = await conn.execute(
+                'DELETE FROM node_templates WHERE id = ?',
+                [req.params.id]
+            );
+
+            if (result.affectedRows === 0) {
+                await conn.rollback();
+                return res.status(404).json({ error: true, message: '模板不存在' });
+            }
+
+            // 提交事务
+            await conn.commit();
+            res.json({ success: true, message: '模板删除成功' });
+        } catch (error) {
+            await conn.rollback();
+            throw error;
+        } finally {
+            conn.release();
+        }
+    } catch (error) {
+        console.error('删除模板失败:', error);
+        res.status(500).json({ error: true, message: '删除模板失败', details: error.message });
+    }
+});
+
+// 优化错误处理中间件
 app.use((err, req, res, next) => {
+    const errorId = uuidv4();
+    console.error(`Error ID: ${errorId}`);
     console.error('Error:', err);
-    // 记录详细错误信息
     console.error('Stack:', err.stack);
     console.error('URL:', req.url);
     console.error('Method:', req.method);
     console.error('Headers:', req.headers);
+    console.error('Body:', req.body);
+    
+    // 记录错误到数据库
+    pool.execute(
+        'INSERT INTO error_logs (error_id, error_message, error_stack, request_url, request_method, request_headers, request_body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
+        [errorId, err.message, err.stack, req.url, req.method, JSON.stringify(req.headers), JSON.stringify(req.body)]
+    ).catch(logError => {
+        console.error('Error logging failed:', logError);
+    });
     
     res.status(err.status || 500).json({
         error: true,
         message: process.env.NODE_ENV === 'production' ? '服务器内部错误' : err.message,
-        code: err.code || 'INTERNAL_ERROR'
+        code: err.code || 'INTERNAL_ERROR',
+        errorId: errorId
     });
 });
 
-// 404 处理优化
+// 优化 404 处理
 app.use((req, res) => {
-    console.log('404 Not Found:', req.url);
+    const errorId = uuidv4();
+    console.log(`404 Not Found (ID: ${errorId}):`, req.url);
+    
+    // 记录 404 错误
+    pool.execute(
+        'INSERT INTO error_logs (error_id, error_message, request_url, request_method, request_headers, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+        [errorId, '404 Not Found', req.url, req.method, JSON.stringify(req.headers)]
+    ).catch(logError => {
+        console.error('Error logging failed:', logError);
+    });
+    
     res.status(404).json({
         error: true,
         message: '页面不存在',
-        path: req.url
+        path: req.url,
+        errorId: errorId
     });
 });
 
@@ -776,6 +1585,55 @@ function updateProxyGroups(template, proxies) {
         }
     ];
 }
+
+// 数据库备份功能
+const BACKUP_DIR = process.env.BACKUP_DIR || '/opt/nodeconfig-backup';
+
+// 执行备份
+async function backupDatabase() {
+    const timestamp = moment().format('YYYYMMDD_HHmmss');
+    const filename = `nodeconfig_db_${timestamp}.sql`;
+    const backupPath = path.join(BACKUP_DIR, filename);
+
+    // 确保备份目录存在
+    if (!fs.existsSync(BACKUP_DIR)) {
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    }
+
+    // 构建备份命令
+    const command = `mysqldump -h ${dbConfig.host} -u ${dbConfig.user} -p${dbConfig.password} ${dbConfig.database} > ${backupPath}`;
+    
+    try {
+        await new Promise((resolve, reject) => {
+            exec(command, (error, stdout, stderr) => {
+                if (error) reject(error);
+                else resolve();
+            });
+        });
+
+        console.log(`数据库备份成功: ${backupPath}`);
+
+        // 删除30天前的备份
+        const oldBackups = fs.readdirSync(BACKUP_DIR)
+            .filter(file => file.endsWith('.sql'))
+            .map(file => path.join(BACKUP_DIR, file));
+
+        for (const backup of oldBackups) {
+            const stats = fs.statSync(backup);
+            const daysOld = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
+            
+            if (daysOld > 30) {
+                fs.unlinkSync(backup);
+                console.log(`删除过期备份: ${backup}`);
+            }
+        }
+    } catch (error) {
+        console.error('数据库备份失败:', error);
+    }
+}
+
+// 每天凌晨3点执行备份
+schedule.scheduleJob('0 3 * * *', backupDatabase);
 
 // 启动服务器
 const PORT = process.env.PORT || 3000;
