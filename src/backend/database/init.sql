@@ -1,7 +1,7 @@
 -- 创建数据库
-CREATE DATABASE IF NOT EXISTS nodeconfig CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS nodeconfig_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-USE nodeconfig;
+USE nodeconfig_db;
 
 -- 用户表
 CREATE TABLE IF NOT EXISTS users (
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS backups (
 
 -- 创建初始管理员账户 (密码: admin123)
 INSERT INTO users (id, username, password, role, status) VALUES 
-(UUID(), 'admin', '$2a$10$YourHashedPasswordHere', 'admin', 'active')
+(UUID(), 'admin', '$2a$10$3GNlHWHAGNI0L6RD1C/8H.YmRqWC4.wOZhqD5L6HWQTpHiBj0Nwwi', 'admin', 'active')
 ON DUPLICATE KEY UPDATE role='admin';
 
 -- 创建数据库优化存储过程

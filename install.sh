@@ -23,6 +23,11 @@ DOCKER_MIRRORS=(
     "https://hub-mirror.c.163.com"
 )
 
+# 在文件开头添加数据库配置
+DB_USER="nodeconfig"
+DB_PASSWORD="nodeconfig123"
+DB_NAME="nodeconfig_db"
+
 # 日志函数
 log() {
     echo -e "${1}"
@@ -332,51 +337,40 @@ check_network() {
     fi
 }
 
-# 初始化数据库
-init_database() {
-    log "${yellow}初始化数据库...${plain}"
-    
-    # 确保 MySQL 客户端已安装
-    if ! command -v mysql >/dev/null 2>&1; then
-        apt-get update
-        apt-get install -y default-mysql-client
-    fi
+# 等待 MySQL 服务就绪
+wait_for_mysql() {
+    echo "等待 MySQL 服务就绪..."
+    local retries=0
+    local max_retries=30
 
-    # 确保数据库目录存在
-    mkdir -p "${INSTALL_DIR}/src/backend/database"
-    
-    # 复制初始化脚本到正确位置
-    if [ -f "init.sql" ]; then
-        cp init.sql "${INSTALL_DIR}/src/backend/database/"
-    fi
-
-    # 等待 MySQL 服务就绪
-    counter=0
-    while ! mysql -h mysql -u"${DB_USER}" -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1; do
-        counter=$((counter + 1))
-        if [ $counter -gt 30 ]; then
-            handle_error "MySQL 服务启动超时"
+    while [ $retries -lt $max_retries ]; do
+        if docker-compose ps mysql | grep -q "healthy"; then
+            echo "MySQL 服务已就绪"
+            return 0
         fi
-        log "${yellow}等待 MySQL 服务就绪...${plain}"
+        echo "MySQL 服务未就绪，等待中... (${retries}/${max_retries})"
         sleep 2
+        retries=$((retries + 1))
     done
 
-    # 创建数据库和用户
-    mysql -h mysql -u"${DB_USER}" -p"${DB_PASSWORD}" <<EOF
-CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
-GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'%';
-FLUSH PRIVILEGES;
-EOF
+    echo "错误：MySQL 服务启动超时"
+    return 1
+}
 
-    # 导入数据库结构
-    if [ -f "${INSTALL_DIR}/src/backend/database/init.sql" ]; then
-        mysql -h mysql -u"${DB_USER}" -p"${DB_PASSWORD}" ${DB_NAME} < "${INSTALL_DIR}/src/backend/database/init.sql"
-    else
-        handle_error "数据库初始化脚本不存在"
+# 初始化数据库
+init_database() {
+    echo "开始初始化数据库..."
+    
+    # 启动 MySQL 容器
+    docker-compose up -d mysql
+    
+    # 等待 MySQL 就绪
+    if ! wait_for_mysql; then
+        echo "错误：MySQL 服务启动失败"
+        exit 1
     fi
-
-    log "${green}数据库初始化完成${plain}"
+    
+    echo "数据库初始化完成"
 }
 
 # 部署服务
@@ -392,9 +386,6 @@ deploy_service() {
         install_base
     fi
 
-    # 初始化数据库
-    init_database
-
     # 清理旧的容器和网络
     docker-compose down --volumes --remove-orphans 2>/dev/null || true
     docker network prune -f
@@ -402,9 +393,12 @@ deploy_service() {
     # 创建新的网络
     docker network create --subnet=172.21.0.0/16 nodeconfig_net 2>/dev/null || true
 
-    # 启动服务
-    log "${yellow}启动服务...${plain}"
-    docker-compose up -d || handle_error "启动服务失败"
+    # 初始化数据库（现在会先启动 MySQL）
+    init_database
+
+    # 启动其他服务
+    log "${yellow}启动其他服务...${plain}"
+    docker-compose up -d redis nodeconfig phpmyadmin || handle_error "启动服务失败"
 
     # 等待服务启动
     log "${yellow}等待服务启动...${plain}"
