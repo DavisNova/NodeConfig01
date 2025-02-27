@@ -366,7 +366,7 @@ wait_for_mysql() {
     return 1
 }
 
-# 初始化数据库
+    # 初始化数据库
 init_database() {
     log "${yellow}初始化数据库...${plain}"
     
@@ -516,6 +516,8 @@ deploy_service() {
     # 初始化项目
     init_project
     
+    cd "${INSTALL_DIR}" || handle_error "进入安装目录失败"
+    
     # 确保 Node.js 和 npm 已安装
     if ! command -v npm >/dev/null 2>&1; then
         install_base
@@ -530,24 +532,47 @@ deploy_service() {
         docker network create --subnet=172.21.0.0/16 nodeconfig_net
     fi
 
+    # 确保 .npmrc 文件存在
+    if [ ! -f ".npmrc" ]; then
+        cat > .npmrc << 'EOF'
+registry=https://registry.npmmirror.com/
+sharp_binary_host=https://npmmirror.com/mirrors/sharp
+sharp_libvips_binary_host=https://npmmirror.com/mirrors/sharp-libvips
+electron_mirror=https://npmmirror.com/mirrors/electron/
+chromedriver_cdnurl=https://npmmirror.com/mirrors/chromedriver
+operadriver_cdnurl=https://npmmirror.com/mirrors/operadriver
+phantomjs_cdnurl=https://npmmirror.com/mirrors/phantomjs
+selenium_cdnurl=https://npmmirror.com/mirrors/selenium
+node_sqlite3_binary_host_mirror=https://npmmirror.com/mirrors/
+canvas_binary_host_mirror=https://npmmirror.com/mirrors/node-canvas-prebuilt/
+EOF
+    fi
+
     # 初始化数据库（现在会先启动 MySQL）
     init_database
 
-    # 启动其他服务
-    log "${yellow}启动其他服务...${plain}"
-    docker-compose up -d redis nodeconfig phpmyadmin || handle_error "启动服务失败"
+    # 构建并启动所有服务
+    log "${yellow}构建并启动服务...${plain}"
+    docker-compose build --no-cache nodeconfig || handle_error "构建服务失败"
+    docker-compose up -d || handle_error "启动服务失败"
 
     # 等待服务启动
     log "${yellow}等待服务启动...${plain}"
     sleep 10
 
     # 检查服务状态
-    check_service_health
+    check_service_status
 
     log "${green}服务已成功启动${plain}"
     log "${yellow}管理员账号: admin${plain}"
     log "${yellow}管理员密码: admin123${plain}"
     log "${yellow}请及时修改管理员密码！${plain}"
+    
+    # 显示服务访问信息
+    echo -e "\n${green}服务访问信息：${plain}"
+    echo -e "网站首页: http://localhost:3000"
+    echo -e "管理后台: http://localhost:3000/admin"
+    echo -e "数据库管理: http://localhost:8080"
 }
 
 # 添加更新功能
