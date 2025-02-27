@@ -11,6 +11,12 @@ const MySQLStore = require('connect-mysql')(session);
 
 const app = express();
 
+// 请求日志中间件 - 放在最前面
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+});
+
 // 数据库配置
 const dbConfig = {
     host: process.env.DB_HOST || 'mysql',
@@ -25,6 +31,23 @@ const dbConfig = {
 // 创建数据库连接池
 const pool = mysql.createPool(dbConfig);
 
+// 测试数据库连接
+async function testDatabaseConnection() {
+    try {
+        const conn = await pool.getConnection();
+        console.log('数据库连接成功');
+        conn.release();
+        return true;
+    } catch (error) {
+        console.error('数据库连接失败:', error);
+        return false;
+    }
+}
+
+// 基础中间件配置
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // 会话配置
 app.use(session({
     store: new MySQLStore({
@@ -36,22 +59,13 @@ app.use(session({
     cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24小时
 }));
 
-// 中间件配置
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
 // 静态文件配置
-app.use(express.static(path.join(__dirname)));
 app.use('/public', express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname)));
 
 // 健康检查路由
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
-});
-
-// Admin 路由
-app.get('/admin', (req, res) => {
-    res.sendFile(path.join(__dirname, 'admin.html'));
 });
 
 // 首页路由
@@ -59,10 +73,9 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// 请求日志中间件
-app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-    next();
+// Admin 路由
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin.html'));
 });
 
 // 管理后台 API
@@ -647,12 +660,13 @@ app.get('/subscribe/:id', async (req, res) => {
     }
 });
 
-// 错误处理中间件
+// 错误处理中间件 - 放在所有路由之后
 app.use((err, req, res, next) => {
     console.error('Error:', err);
     res.status(500).json({
         error: true,
-        message: '服务器内部错误'
+        message: '服务器内部错误',
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
 });
 
@@ -740,6 +754,22 @@ function updateProxyGroups(template, proxies) {
 
 // 启动服务器
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`服务器运行在端口 ${PORT}`);
-});
+async function startServer() {
+    try {
+        // 等待数据库连接
+        const dbConnected = await testDatabaseConnection();
+        if (!dbConnected) {
+            console.error('无法连接到数据库，服务启动失败');
+            process.exit(1);
+        }
+
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`服务器运行在端口 ${PORT}`);
+        });
+    } catch (error) {
+        console.error('服务器启动失败:', error);
+        process.exit(1);
+    }
+}
+
+startServer();
