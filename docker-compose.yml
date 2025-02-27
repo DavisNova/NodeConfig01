@@ -5,6 +5,7 @@ services:
       context: .
       args:
         - NPM_REGISTRY=https://registry.npmmirror.com
+      dockerfile: Dockerfile
     container_name: nodeconfig
     ports:
       - "3000:3000"
@@ -18,9 +19,11 @@ services:
       - SESSION_SECRET=your-session-secret
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
     volumes:
       - ./src:/app/src
       - node_modules:/app/node_modules
+      - npm_cache:/root/.npm
     depends_on:
       mysql:
         condition: service_healthy
@@ -32,6 +35,8 @@ services:
     dns:
       - 8.8.8.8
       - 114.114.114.114
+    mem_limit: 1G
+    memswap_limit: 2G
 
   mysql:
     image: mysql:8.0
@@ -113,6 +118,7 @@ volumes:
   mysql_data:
   node_modules:
   redis_data:
+  npm_cache:
 
 networks:
   nodeconfig_net:
