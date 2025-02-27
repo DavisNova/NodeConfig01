@@ -412,13 +412,41 @@ check_files() {
     log "${green}文件完整性检查通过${plain}"
 }
 
+# 下载项目文件
+download_project() {
+    log "${yellow}下载项目文件...${plain}"
+    
+    # 创建临时目录
+    local temp_dir="/tmp/nodeconfig-temp"
+    mkdir -p $temp_dir
+    cd $temp_dir
+    
+    # 下载项目文件
+    if [ ! -d "${temp_dir}/.git" ]; then
+        git clone https://github.com/${GITHUB_REPO}.git . || {
+            log "${yellow}尝试使用镜像下载...${plain}"
+            git clone https://ghproxy.com/https://github.com/${GITHUB_REPO}.git . || handle_error "下载项目文件失败"
+        }
+    fi
+    
+    # 复制文件到安装目录
+    mkdir -p ${INSTALL_DIR}
+    cp -rf . ${INSTALL_DIR}/
+    cd ${INSTALL_DIR}
+    
+    # 清理临时文件
+    rm -rf $temp_dir
+    
+    log "${green}项目文件下载完成${plain}"
+}
+
 # 初始化项目
 init_project() {
     log "${yellow}初始化项目...${plain}"
     
-    # 复制项目文件到安装目录
-    mkdir -p "${INSTALL_DIR}"
-    cp -r . "${INSTALL_DIR}/"
+    # 下载项目文件
+    download_project
+    
     cd "${INSTALL_DIR}" || handle_error "进入安装目录失败"
     
     # 创建必要的目录
@@ -428,12 +456,54 @@ init_project() {
     mkdir -p data/redis
     
     # 设置权限
-    chmod +x docker-entrypoint.sh
-    chmod +x setup.sh
+    if [ -f "docker-entrypoint.sh" ]; then
+        chmod +x docker-entrypoint.sh
+    fi
+    if [ -f "setup.sh" ]; then
+        chmod +x setup.sh
+    fi
     
     # 如果 .env 文件不存在，从示例文件创建
     if [ ! -f ".env" ] && [ -f ".env.example" ]; then
         cp .env.example .env
+    fi
+    
+    # 确保 docker-compose.yml 存在
+    if [ ! -f "docker-compose.yml" ]; then
+        handle_error "缺少 docker-compose.yml 文件"
+    fi
+    
+    # 确保数据库初始化脚本存在
+    if [ ! -f "src/backend/database/init.sql" ]; then
+        mkdir -p src/backend/database
+        cat > src/backend/database/init.sql << 'EOF'
+-- 创建数据库
+CREATE DATABASE IF NOT EXISTS nodeconfig_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+USE nodeconfig_db;
+
+-- 用户表
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(36) PRIMARY KEY,
+    username VARCHAR(30) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    password VARCHAR(100) NOT NULL,
+    role ENUM('user', 'admin') DEFAULT 'user',
+    status ENUM('active', 'inactive') DEFAULT 'active',
+    last_login_at TIMESTAMP NULL,
+    last_login_ip VARCHAR(45) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_username (username),
+    INDEX idx_email (email),
+    INDEX idx_status (status)
+) ENGINE=InnoDB;
+
+-- 创建初始管理员账户 (密码: admin123)
+INSERT INTO users (id, username, password, role, status) VALUES 
+(UUID(), 'admin', '$2a$10$3GNlHWHAGNI0L6RD1C/8H.YmRqWC4.wOZhqD5L6HWQTpHiBj0Nwwi', 'admin', 'active')
+ON DUPLICATE KEY UPDATE role='admin';
+EOF
     fi
     
     log "${green}项目初始化完成${plain}"
@@ -442,9 +512,6 @@ init_project() {
 # 部署服务
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
-    
-    # 检查文件完整性
-    check_files
     
     # 初始化项目
     init_project
@@ -458,8 +525,10 @@ deploy_service() {
     docker-compose down --volumes --remove-orphans 2>/dev/null || true
     docker network prune -f
 
-    # 创建新的网络
-    docker network create --subnet=172.21.0.0/16 nodeconfig_net 2>/dev/null || true
+    # 创建新的网络（如果不存在）
+    if ! docker network ls | grep -q nodeconfig_net; then
+        docker network create --subnet=172.21.0.0/16 nodeconfig_net
+    fi
 
     # 初始化数据库（现在会先启动 MySQL）
     init_database
