@@ -48,6 +48,15 @@ async function testDatabaseConnection() {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// 请求超时设置
+app.use((req, res, next) => {
+    res.setTimeout(30000, () => {
+        console.error('请求超时');
+        res.status(408).json({ error: true, message: '请求超时' });
+    });
+    next();
+});
+
 // 会话配置
 app.use(session({
     store: new MySQLStore({
@@ -59,9 +68,17 @@ app.use(session({
     cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24小时
 }));
 
-// 静态文件配置
-app.use('/public', express.static(path.join(__dirname, 'public')));
-app.use(express.static(path.join(__dirname)));
+// 静态文件配置优化
+app.use(express.static(path.join(__dirname, 'public'), {
+    maxAge: '1h',
+    etag: true,
+    lastModified: true
+}));
+app.use(express.static(path.join(__dirname), {
+    maxAge: '1h',
+    etag: true,
+    lastModified: true
+}));
 
 // 健康检查路由
 app.get('/health', (req, res) => {
@@ -660,21 +677,29 @@ app.get('/subscribe/:id', async (req, res) => {
     }
 });
 
-// 错误处理中间件 - 放在所有路由之后
+// 错误处理中间件优化
 app.use((err, req, res, next) => {
     console.error('Error:', err);
-    res.status(500).json({
+    // 记录详细错误信息
+    console.error('Stack:', err.stack);
+    console.error('URL:', req.url);
+    console.error('Method:', req.method);
+    console.error('Headers:', req.headers);
+    
+    res.status(err.status || 500).json({
         error: true,
-        message: '服务器内部错误',
-        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+        message: process.env.NODE_ENV === 'production' ? '服务器内部错误' : err.message,
+        code: err.code || 'INTERNAL_ERROR'
     });
 });
 
-// 404 处理
+// 404 处理优化
 app.use((req, res) => {
+    console.log('404 Not Found:', req.url);
     res.status(404).json({
         error: true,
-        message: '页面不存在'
+        message: '页面不存在',
+        path: req.url
     });
 });
 
