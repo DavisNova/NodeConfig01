@@ -532,24 +532,12 @@ deploy_service() {
         docker network create --subnet=172.21.0.0/16 nodeconfig_net
     fi
 
-    # 确保 .npmrc 文件存在
-    if [ ! -f ".npmrc" ]; then
-        cat > .npmrc << 'EOF'
-registry=https://registry.npmmirror.com/
-sharp_binary_host=https://npmmirror.com/mirrors/sharp
-sharp_libvips_binary_host=https://npmmirror.com/mirrors/sharp-libvips
-electron_mirror=https://npmmirror.com/mirrors/electron/
-chromedriver_cdnurl=https://npmmirror.com/mirrors/chromedriver
-operadriver_cdnurl=https://npmmirror.com/mirrors/operadriver
-phantomjs_cdnurl=https://npmmirror.com/mirrors/phantomjs
-selenium_cdnurl=https://npmmirror.com/mirrors/selenium
-node_sqlite3_binary_host_mirror=https://npmmirror.com/mirrors/
-canvas_binary_host_mirror=https://npmmirror.com/mirrors/node-canvas-prebuilt/
-EOF
-    fi
-
     # 初始化数据库（现在会先启动 MySQL）
     init_database
+
+    # 安装 npm 依赖
+    log "${yellow}安装 npm 依赖...${plain}"
+    cd src && npm install && cd ..
 
     # 构建并启动所有服务
     log "${yellow}构建并启动服务...${plain}"

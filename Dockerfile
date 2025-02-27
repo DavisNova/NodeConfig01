@@ -1,6 +1,6 @@
 FROM node:18
 
-WORKDIR /app/src
+WORKDIR /app
 
 # 设置时区
 ENV TZ=Asia/Shanghai
@@ -12,14 +12,12 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制 package.json 和 .npmrc
-COPY package*.json .npmrc ./
+# 复制项目文件
+COPY . .
 
 # 安装依赖
+WORKDIR /app/src
 RUN npm install
-
-# 复制其他文件
-COPY . .
 
 EXPOSE 3000
 
