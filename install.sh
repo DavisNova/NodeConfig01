@@ -341,46 +341,114 @@ check_network() {
 wait_for_mysql() {
     echo "等待 MySQL 服务就绪..."
     local retries=0
-    local max_retries=30
+    local max_retries=60
 
     while [ $retries -lt $max_retries ]; do
-        if docker-compose ps mysql | grep -q "healthy"; then
+        if docker-compose ps mysql | grep -q "(healthy)"; then
             echo "MySQL 服务已就绪"
             return 0
         fi
+        
+        # 检查容器是否在运行
+        if ! docker-compose ps mysql | grep -q "Up"; then
+            echo "MySQL 容器未运行，查看日志："
+            docker-compose logs mysql
+            return 1
+        fi
+        
         echo "MySQL 服务未就绪，等待中... (${retries}/${max_retries})"
-        sleep 2
+        sleep 5
         retries=$((retries + 1))
     done
 
-    echo "错误：MySQL 服务启动超时"
+    echo "错误：MySQL 服务启动超时，查看日志："
+    docker-compose logs mysql
     return 1
 }
 
 # 初始化数据库
 init_database() {
-    echo "开始初始化数据库..."
+    log "${yellow}初始化数据库...${plain}"
     
-    # 启动 MySQL 容器
+    # 确保数据库目录存在
+    mkdir -p "${INSTALL_DIR}/src/backend/database"
+    
+    # 复制初始化脚本到正确位置
+    if [ -f "init.sql" ]; then
+        cp init.sql "${INSTALL_DIR}/src/backend/database/"
+    fi
+
+    # 先启动 MySQL 容器
+    log "${yellow}启动 MySQL 服务...${plain}"
     docker-compose up -d mysql
     
     # 等待 MySQL 就绪
     if ! wait_for_mysql; then
-        echo "错误：MySQL 服务启动失败"
-        exit 1
+        handle_error "MySQL 服务启动失败"
     fi
     
-    echo "数据库初始化完成"
+    log "${green}数据库初始化完成${plain}"
+}
+
+# 检查文件完整性
+check_files() {
+    log "${yellow}检查文件完整性...${plain}"
+    
+    local required_files=(
+        "docker-compose.yml"
+        "src/backend/database/init.sql"
+        "Dockerfile"
+        "src/backend/app.js"
+        "src/backend/server.js"
+        "src/backend/package.json"
+    )
+    
+    for file in "${required_files[@]}"; do
+        if [ ! -f "$file" ]; then
+            handle_error "缺少必要文件: $file"
+        fi
+    done
+    
+    log "${green}文件完整性检查通过${plain}"
+}
+
+# 初始化项目
+init_project() {
+    log "${yellow}初始化项目...${plain}"
+    
+    # 复制项目文件到安装目录
+    mkdir -p "${INSTALL_DIR}"
+    cp -r . "${INSTALL_DIR}/"
+    cd "${INSTALL_DIR}" || handle_error "进入安装目录失败"
+    
+    # 创建必要的目录
+    mkdir -p src/backend/database
+    mkdir -p src/logs
+    mkdir -p data/mysql
+    mkdir -p data/redis
+    
+    # 设置权限
+    chmod +x docker-entrypoint.sh
+    chmod +x setup.sh
+    
+    # 如果 .env 文件不存在，从示例文件创建
+    if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+        cp .env.example .env
+    fi
+    
+    log "${green}项目初始化完成${plain}"
 }
 
 # 部署服务
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
     
-    # 创建必要的目录
-    mkdir -p "${INSTALL_DIR}/src" || handle_error "创建工作目录失败"
-    cd "${INSTALL_DIR}" || handle_error "进入工作目录失败"
-
+    # 检查文件完整性
+    check_files
+    
+    # 初始化项目
+    init_project
+    
     # 确保 Node.js 和 npm 已安装
     if ! command -v npm >/dev/null 2>&1; then
         install_base

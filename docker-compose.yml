@@ -22,8 +22,10 @@ services:
       - ./src:/app/src
       - node_modules:/app/node_modules
     depends_on:
-      - mysql
-      - redis
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       nodeconfig_net:
         ipv4_address: 172.21.0.2
@@ -38,11 +40,14 @@ services:
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
-      --innodb_buffer_pool_size=512M
-      --innodb_log_buffer_size=64M
-      --max_connections=1000
-      --query_cache_size=64M
-      --query_cache_limit=2M
+      --innodb_buffer_pool_size=256M
+      --innodb_log_buffer_size=32M
+      --max_connections=500
+      --skip-name-resolve
+      --skip-host-cache
+      --innodb_flush_log_at_trx_commit=2
+      --sync_binlog=0
+      --innodb_flush_method=O_DIRECT
     restart: always
     ports:
       - "3306:3306"
@@ -55,13 +60,18 @@ services:
       - mysql_data:/var/lib/mysql
       - ./src/backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "nodeconfig", "-pnodeconfig123"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u$$MYSQL_USER", "-p$$MYSQL_PASSWORD"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
     networks:
       nodeconfig_net:
         ipv4_address: 172.21.0.3
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
 
   redis:
     image: redis:alpine
@@ -88,7 +98,8 @@ services:
       - UPLOAD_LIMIT=300M
       - PMA_ABSOLUTE_URI=http://${SERVER_IP:-localhost}:8080/
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     networks:
       nodeconfig_net:
         ipv4_address: 172.21.0.4
