@@ -127,22 +127,14 @@
                         v-model:value="loginForm.username"
                         size="large"
                         placeholder="请输入用户名"
-                    >
-                        <template #prefix>
-                            <user-outlined style="color: rgba(0,0,0,.25)" />
-                        </template>
-                    </a-input>
+                    />
                 </a-form-item>
                 <a-form-item class="login-form-item">
                     <a-input-password 
                         v-model:value="loginForm.password"
                         size="large"
                         placeholder="请输入密码"
-                    >
-                        <template #prefix>
-                            <lock-outlined style="color: rgba(0,0,0,.25)" />
-                        </template>
-                    </a-input-password>
+                    />
                 </a-form-item>
                 <a-form-item>
                     <a-button 
@@ -272,17 +264,9 @@
     <script src="https://cdn.bootcdn.net/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
     <script>
         const { createApp, ref, onMounted, reactive } = Vue;
-        const { 
-            UserOutlined, 
-            LockOutlined,
-            message
-        } = antd.icons;
-
+        const message = antd.message;
+        
         const app = createApp({
-            components: {
-                UserOutlined,
-                LockOutlined
-            },
             setup() {
                 const isLoggedIn = ref(false);
                 const loginLoading = ref(false);
@@ -503,7 +487,6 @@
             }
         });
 
-        // 挂载Vue实例
         app.use(antd);
         app.mount('#app');
     </script>
