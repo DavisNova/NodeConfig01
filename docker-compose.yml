@@ -16,11 +16,14 @@ services:
       - DB_PASSWORD=nodeconfig123
       - DB_NAME=nodeconfig_db
       - SESSION_SECRET=your-session-secret
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     volumes:
       - ./src:/app/src
       - node_modules:/app/node_modules
     depends_on:
       - mysql
+      - redis
     networks:
       nodeconfig_net:
         ipv4_address: 172.21.0.2
@@ -31,7 +34,15 @@ services:
   mysql:
     image: mysql:8.0
     container_name: nodeconfig-mysql
-    command: --default-authentication-plugin=mysql_native_password
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb_buffer_pool_size=512M
+      --innodb_log_buffer_size=64M
+      --max_connections=1000
+      --query_cache_size=64M
+      --query_cache_limit=2M
     restart: always
     ports:
       - "3306:3306"
@@ -52,6 +63,18 @@ services:
       nodeconfig_net:
         ipv4_address: 172.21.0.3
 
+  redis:
+    image: redis:alpine
+    container_name: nodeconfig-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      nodeconfig_net:
+        ipv4_address: 172.21.0.5
+
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
     container_name: nodeconfig-phpmyadmin
@@ -68,11 +91,12 @@ services:
       - mysql
     networks:
       nodeconfig_net:
-        ipv4_address: 172.20.0.4
+        ipv4_address: 172.21.0.4
 
 volumes:
   mysql_data:
   node_modules:
+  redis_data:
 
 networks:
   nodeconfig_net:

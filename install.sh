@@ -332,6 +332,53 @@ check_network() {
     fi
 }
 
+# 初始化数据库
+init_database() {
+    log "${yellow}初始化数据库...${plain}"
+    
+    # 确保 MySQL 客户端已安装
+    if ! command -v mysql >/dev/null 2>&1; then
+        apt-get update
+        apt-get install -y default-mysql-client
+    fi
+
+    # 确保数据库目录存在
+    mkdir -p "${INSTALL_DIR}/src/backend/database"
+    
+    # 复制初始化脚本到正确位置
+    if [ -f "init.sql" ]; then
+        cp init.sql "${INSTALL_DIR}/src/backend/database/"
+    fi
+
+    # 等待 MySQL 服务就绪
+    counter=0
+    while ! mysql -h mysql -u"${DB_USER}" -p"${DB_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1; do
+        counter=$((counter + 1))
+        if [ $counter -gt 30 ]; then
+            handle_error "MySQL 服务启动超时"
+        fi
+        log "${yellow}等待 MySQL 服务就绪...${plain}"
+        sleep 2
+    done
+
+    # 创建数据库和用户
+    mysql -h mysql -u"${DB_USER}" -p"${DB_PASSWORD}" <<EOF
+CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'%';
+FLUSH PRIVILEGES;
+EOF
+
+    # 导入数据库结构
+    if [ -f "${INSTALL_DIR}/src/backend/database/init.sql" ]; then
+        mysql -h mysql -u"${DB_USER}" -p"${DB_PASSWORD}" ${DB_NAME} < "${INSTALL_DIR}/src/backend/database/init.sql"
+    else
+        handle_error "数据库初始化脚本不存在"
+    fi
+
+    log "${green}数据库初始化完成${plain}"
+}
+
 # 部署服务
 deploy_service() {
     log "${yellow}开始部署服务...${plain}"
@@ -346,14 +393,7 @@ deploy_service() {
     fi
 
     # 初始化数据库
-    log "${yellow}初始化数据库...${plain}"
-    mysql -e "CREATE DATABASE IF NOT EXISTS nodeconfig CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    mysql -e "CREATE USER IF NOT EXISTS 'nodeconfig'@'localhost' IDENTIFIED BY 'nodeconfig123';"
-    mysql -e "GRANT ALL PRIVILEGES ON nodeconfig.* TO 'nodeconfig'@'localhost';"
-    mysql -e "FLUSH PRIVILEGES;"
-    
-    # 导入数据库结构
-    mysql nodeconfig < ${INSTALL_DIR}/src/backend/database/init.sql || handle_error "导入数据库失败"
+    init_database
 
     # 清理旧的容器和网络
     docker-compose down --volumes --remove-orphans 2>/dev/null || true
@@ -362,172 +402,8 @@ deploy_service() {
     # 创建新的网络
     docker network create --subnet=172.21.0.0/16 nodeconfig_net 2>/dev/null || true
 
-    # 创建 docker-compose.yml（保持原有配置）
-    if [ ! -f docker-compose.yml ]; then
-        cat > docker-compose.yml << 'EOF'
-version: '3'
-services:
-  nodeconfig:
-    build: .
-    container_name: nodeconfig
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      - NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
-    volumes:
-      - ./src:/app/src
-    networks:
-      nodeconfig_net:
-        ipv4_address: 172.21.0.2
-
-networks:
-  nodeconfig_net:
-    external: true
-EOF
-    fi
-
-    # 创建 Dockerfile（保持原有配置）
-    if [ ! -f Dockerfile ]; then
-        cat > Dockerfile << 'EOF'
-FROM node:18
-
-WORKDIR /app/src
-
-RUN apt-get update && apt-get install -y \
-    curl \
-    default-mysql-client \
-    tzdata \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone
-
-RUN mkdir -p /app/src /app/logs
-
-RUN echo "registry=https://registry.npmmirror.com" > /root/.npmrc
-
-EXPOSE 3000
-
-CMD ["npm", "start"]
-EOF
-    fi
-
-    # 构建前端
-    log "${yellow}构建前端...${plain}"
-    cd ${INSTALL_DIR}/src/frontend
-    
-    # 设置 npm 镜像
-    npm config set registry https://registry.npmmirror.com
-    
-    # 安装依赖
-    if ! npm install; then
-        log "${yellow}尝试使用备用镜像源...${plain}"
-        npm config set registry https://registry.npm.taobao.org
-        if ! npm install; then
-            handle_error "前端依赖安装失败"
-        fi
-    fi
-    
-    # 创建环境变量文件
-    if [ ! -f .env ]; then
-        cat > .env << EOF
-NODE_ENV=production
-VUE_APP_API_BASE_URL=/api
-VUE_APP_API_TIMEOUT=10000
-EOF
-    fi
-    
-    # 构建
-    if ! npm run build; then
-        handle_error "前端构建失败"
-    fi
-    
-    # 优化静态文件
-    if [ -d "dist" ]; then
-        # 压缩 HTML
-        find dist -name "*.html" -exec gzip -k {} \;
-        # 压缩 CSS
-        find dist -name "*.css" -exec gzip -k {} \;
-        # 压缩 JS
-        find dist -name "*.js" -exec gzip -k {} \;
-    fi
-
-    # 构建后端
-    log "${yellow}构建后端...${plain}"
-    cd ${INSTALL_DIR}/src/backend
-    
-    # 设置 npm 镜像
-    npm config set registry https://registry.npmmirror.com
-    
-    # 安装依赖
-    if ! npm install; then
-        log "${yellow}尝试使用备用镜像源...${plain}"
-        npm config set registry https://registry.npm.taobao.org
-        if ! npm install; then
-            handle_error "后端依赖安装失败"
-        fi
-    fi
-    
-    # 创建环境变量文件
-    if [ ! -f .env ]; then
-        cat > .env << EOF
-PORT=3000
-NODE_ENV=production
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=nodeconfig
-DB_PASS=nodeconfig123
-DB_NAME=nodeconfig
-JWT_SECRET=$(openssl rand -base64 32)
-JWT_EXPIRES_IN=7d
-LOG_LEVEL=info
-EOF
-    fi
-    
-    # 创建日志目录
-    mkdir -p ${INSTALL_DIR}/logs
-    
-    # 安装 PM2
-    npm install -g pm2
-    
-    # 启动服务
-    pm2 start ecosystem.config.js || handle_error "启动后端服务失败"
-    
-    # 保存 PM2 进程列表
-    pm2 save
-    
-    # 设置开机自启
-    pm2 startup
-
-    # 配置 Nginx
-    log "${yellow}配置 Nginx...${plain}"
-    cat > /etc/nginx/conf.d/nodeconfig.conf << EOF
-server {
-    listen 80;
-    server_name _;
-
-    location / {
-        root ${INSTALL_DIR}/src/frontend/dist;
-        try_files \$uri \$uri/ /index.html;
-    }
-
-    location /api {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-    }
-}
-EOF
-    nginx -t && systemctl reload nginx
-
     # 启动服务
     log "${yellow}启动服务...${plain}"
-    cd ${INSTALL_DIR}
     docker-compose up -d || handle_error "启动服务失败"
 
     # 等待服务启动
@@ -535,43 +411,9 @@ EOF
     sleep 10
 
     # 检查服务状态
-    if ! curl -s http://localhost:3000/health >/dev/null; then
-        handle_error "服务启动失败"
-    fi
+    check_service_health
 
     log "${green}服务已成功启动${plain}"
-
-    # 创建定时备份任务
-    log "${yellow}配置定时备份...${plain}"
-    if [ ! -f "${INSTALL_DIR}/scripts/backup.sh" ]; then
-        mkdir -p ${INSTALL_DIR}/scripts
-        cat > ${INSTALL_DIR}/scripts/backup.sh << 'EOF'
-#!/bin/bash
-BACKUP_DIR="/opt/nodeconfig/backups"
-DATE=$(date +%Y%m%d_%H%M%S)
-
-# 创建备份目录
-mkdir -p $BACKUP_DIR
-
-# 备份数据库
-mysqldump -u nodeconfig -pnodeconfig123 nodeconfig > $BACKUP_DIR/db_$DATE.sql
-
-# 压缩备份
-tar -czf $BACKUP_DIR/backup_$DATE.tar.gz $BACKUP_DIR/db_$DATE.sql
-
-# 删除30天前的备份
-find $BACKUP_DIR -name "backup_*.tar.gz" -mtime +30 -delete
-
-# 记录备份
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backup completed: backup_$DATE.tar.gz" >> $BACKUP_DIR/backup.log
-EOF
-        chmod +x ${INSTALL_DIR}/scripts/backup.sh
-    fi
-
-    # 添加定时任务
-    (crontab -l 2>/dev/null | grep -v "nodeconfig/scripts/backup.sh"; echo "0 2 * * * ${INSTALL_DIR}/scripts/backup.sh") | crontab -
-
-    log "${green}部署完成！${plain}"
     log "${yellow}管理员账号: admin${plain}"
     log "${yellow}管理员密码: admin123${plain}"
     log "${yellow}请及时修改管理员密码！${plain}"
