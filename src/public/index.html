@@ -11,9 +11,15 @@
             padding: 0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: #f0f2f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: linear-gradient(to right bottom, #1890ff, #722ed1);
         }
         .layout {
             min-height: 100vh;
+            background: #f0f2f5;
         }
         .header {
             background: #fff;
@@ -56,29 +62,97 @@
             margin: 16px 0;
         }
         .login-form {
-            max-width: 300px;
-            margin: 100px auto;
-            padding: 24px;
-            background: #fff;
-            border-radius: 4px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            max-width: 400px;
+            width: 90%;
+            margin: 0 auto;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            backdrop-filter: blur(10px);
+        }
+        .login-title {
+            text-align: center;
+            margin-bottom: 32px;
+            color: #1890ff;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .login-logo {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .login-logo img {
+            width: 64px;
+            height: 64px;
+        }
+        .login-form-button {
+            height: 40px;
+            font-size: 16px;
+        }
+        .login-form-forgot {
+            float: right;
+        }
+        .ant-input-affix-wrapper {
+            height: 40px;
+        }
+        .ant-input-affix-wrapper > input.ant-input {
+            height: 38px;
+            font-size: 14px;
+        }
+        .login-form-item {
+            margin-bottom: 24px;
+        }
+        .app-container {
+            width: 100%;
+            min-height: 100vh;
+        }
+        .logged-in-container {
+            background: #f0f2f5;
+            min-height: 100vh;
         }
     </style>
 </head>
 <body>
-    <div id="app">
+    <div id="app" class="app-container">
         <!-- 登录表单 -->
         <div v-if="!isLoggedIn" class="login-form">
-            <h2 style="text-align: center; margin-bottom: 24px;">用户登录</h2>
+            <div class="login-logo">
+                <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHBhdGggZmlsbD0iIzE4OTBmZiIgZD0iTTI0IDRDMTIuOTU0IDQgNCAxMi45NTQgNCAyNHM4Ljk1NCAyMCAyMCAyMCAyMC04Ljk1NCAyMC0yMFMzNS4wNDYgNCAyNCA0em0wIDM2Yy04LjgyMiAwLTE2LTcuMTc4LTE2LTE2UzE1LjE3OCA4IDI0IDhzMTYgNy4xNzggMTYgMTYtNy4xNzggMTYtMTYgMTZ6Ii8+PHBhdGggZmlsbD0iIzE4OTBmZiIgZD0iTTI0IDE2Yy00LjQxMSAwLTggMy41ODktOCA4czMuNTg5IDggOCA4IDgtMy41ODkgOC04LTMuNTg5LTgtOC04eiIvPjwvc3ZnPg==" alt="Logo">
+            </div>
+            <h1 class="login-title">NodeConfig</h1>
             <a-form layout="vertical">
-                <a-form-item label="用户名">
-                    <a-input v-model:value="loginForm.username" />
+                <a-form-item class="login-form-item">
+                    <a-input 
+                        v-model:value="loginForm.username"
+                        size="large"
+                        placeholder="请输入用户名"
+                    >
+                        <template #prefix>
+                            <user-outlined style="color: rgba(0,0,0,.25)" />
+                        </template>
+                    </a-input>
                 </a-form-item>
-                <a-form-item label="密码">
-                    <a-input-password v-model:value="loginForm.password" />
+                <a-form-item class="login-form-item">
+                    <a-input-password 
+                        v-model:value="loginForm.password"
+                        size="large"
+                        placeholder="请输入密码"
+                    >
+                        <template #prefix>
+                            <lock-outlined style="color: rgba(0,0,0,.25)" />
+                        </template>
+                    </a-input-password>
                 </a-form-item>
                 <a-form-item>
-                    <a-button type="primary" block @click="handleLogin">
+                    <a-button 
+                        type="primary" 
+                        block 
+                        size="large"
+                        class="login-form-button"
+                        :loading="loginLoading"
+                        @click="handleLogin"
+                    >
                         登录
                     </a-button>
                 </a-form-item>
@@ -86,7 +160,7 @@
         </div>
 
         <!-- 主界面 -->
-        <template v-else>
+        <div v-else class="logged-in-container">
             <a-layout class="layout">
                 <a-layout-header class="header">
                     <div class="logo">NodeConfig</div>
@@ -171,7 +245,7 @@
                     </div>
                 </a-layout-content>
             </a-layout>
-        </template>
+        </div>
 
         <!-- 修改密码对话框 -->
         <a-modal
@@ -198,9 +272,20 @@
     <script src="https://cdn.bootcdn.net/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
     <script>
         const { createApp, ref, onMounted, reactive } = Vue;
+        const { 
+            UserOutlined, 
+            LockOutlined,
+            message
+        } = antd.icons;
+
         const app = createApp({
+            components: {
+                UserOutlined,
+                LockOutlined
+            },
             setup() {
                 const isLoggedIn = ref(false);
+                const loginLoading = ref(false);
                 const selectedKeys = ref(['subscriptions']);
                 const subscriptions = ref([]);
                 const userInfo = reactive({
@@ -257,18 +342,19 @@
                         subscriptions.value = data.subscriptions;
                     } catch (error) {
                         console.error('加载订阅列表失败:', error);
-                        antd.message.error('加载订阅列表失败');
+                        message.error('加载订阅列表失败');
                     }
                 };
 
                 // 处理登录
                 const handleLogin = async () => {
-                    try {
-                        if (!loginForm.username || !loginForm.password) {
-                            antd.message.error('请输入用户名和密码');
-                            return;
-                        }
+                    if (!loginForm.username || !loginForm.password) {
+                        message.error('请输入用户名和密码');
+                        return;
+                    }
 
+                    loginLoading.value = true;
+                    try {
                         const response = await fetch('/api/login', {
                             method: 'POST',
                             headers: {
@@ -283,13 +369,15 @@
                             Object.assign(userInfo, data.user);
                             isLoggedIn.value = true;
                             loadSubscriptions();
-                            antd.message.success('登录成功');
+                            message.success('登录成功');
                         } else {
-                            antd.message.error(data.message || '登录失败');
+                            message.error(data.message || '登录失败');
                         }
                     } catch (error) {
                         console.error('登录失败:', error);
-                        antd.message.error('登录失败');
+                        message.error('登录失败,请稍后重试');
+                    } finally {
+                        loginLoading.value = false;
                     }
                 };
 
@@ -304,17 +392,17 @@
                         created_at: '',
                         last_login: ''
                     });
-                    antd.message.success('已退出登录');
+                    message.success('已退出登录');
                 };
 
                 // 复制订阅链接
                 const copySubscriptionUrl = (subscription) => {
                     navigator.clipboard.writeText(subscription.subscription_url)
                         .then(() => {
-                            antd.message.success('订阅链接已复制');
+                            message.success('订阅链接已复制');
                         })
                         .catch(() => {
-                            antd.message.error('复制失败');
+                            message.error('复制失败');
                         });
                 };
 
@@ -337,12 +425,12 @@
                 const handleChangePassword = async () => {
                     try {
                         if (!passwordForm.oldPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
-                            antd.message.error('请填写完整信息');
+                            message.error('请填写完整信息');
                             return;
                         }
 
                         if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-                            antd.message.error('两次输入的新密码不一致');
+                            message.error('两次输入的新密码不一致');
                             return;
                         }
 
@@ -359,15 +447,15 @@
                         });
 
                         if (response.ok) {
-                            antd.message.success('密码修改成功');
+                            message.success('密码修改成功');
                             changePasswordVisible.value = false;
                         } else {
                             const data = await response.json();
-                            antd.message.error(data.message || '密码修改失败');
+                            message.error(data.message || '密码修改失败');
                         }
                     } catch (error) {
                         console.error('修改密码失败:', error);
-                        antd.message.error('修改密码失败');
+                        message.error('修改密码失败');
                     }
                 };
 
@@ -396,6 +484,7 @@
 
                 return {
                     isLoggedIn,
+                    loginLoading,
                     selectedKeys,
                     subscriptions,
                     userInfo,
@@ -414,6 +503,7 @@
             }
         });
 
+        // 挂载Vue实例
         app.use(antd);
         app.mount('#app');
     </script>
